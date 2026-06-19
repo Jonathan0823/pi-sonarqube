@@ -436,29 +436,34 @@ class IssueBrowser {
     lines.push(truncateToWidth(subtitle, width));
     lines.push("");
 
-    const visibleIssues = this.state.issues.slice(0, 20);
+    const pageSize = Math.min(20, this.state.issues.length);
+    const halfWindow = Math.floor(pageSize / 2);
+    const maxStart = Math.max(0, this.state.issues.length - pageSize);
+    const start = Math.max(0, Math.min(this.selected - halfWindow, maxStart));
+    const end = Math.min(this.state.issues.length, start + pageSize);
+    const visibleIssues = this.state.issues.slice(start, end);
+
     if (visibleIssues.length === 0) {
       lines.push(truncateToWidth(this.theme.fg("success", "No open issues found."), width));
     } else {
+      if (start > 0) {
+        lines.push(truncateToWidth(this.theme.fg("dim", `... ${start} more above`), width));
+      }
       visibleIssues.forEach((issue, index) => {
-        const selected = index === this.selected;
+        const issueIndex = start + index;
+        const selected = issueIndex === this.selected;
         const marker = selected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
         const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
         const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
         const severity = severityColor(this.theme, issue.severity);
-        const summary = `${marker} ${String(index + 1).padStart(2, "0")}. ${severity} ${this.theme.fg(
+        const summary = `${marker} ${String(issueIndex + 1).padStart(2, "0")}. ${severity} ${this.theme.fg(
           "accent",
           location,
         )} ${this.theme.fg("muted", rule)} ${this.theme.fg("text", `— ${issue.message}`)}`;
         lines.push(truncateToWidth(summary, width));
       });
-      if (this.state.issues.length > visibleIssues.length) {
-        lines.push(
-          truncateToWidth(
-            this.theme.fg("dim", `... ${this.state.issues.length - visibleIssues.length} more`),
-            width,
-          ),
-        );
+      if (end < this.state.issues.length) {
+        lines.push(truncateToWidth(this.theme.fg("dim", `... ${this.state.issues.length - end} more below`), width));
       }
     }
 
@@ -669,6 +674,58 @@ async function fetchIssues(
   return issues;
 }
 
+function createAnalysisState(
+  config: Pick<SonarProjectConfig, "baseDir" | "serverUrl" | "projectKey">,
+  issues: SonarIssue[],
+  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId">> = {},
+): SonarAnalysisState {
+  return {
+    version: 1,
+    analyzedAt: nowIso(),
+    baseDir: config.baseDir,
+    serverUrl: config.serverUrl,
+    projectKey: config.projectKey,
+    dashboardUrl: extras.dashboardUrl,
+    ceTaskUrl: extras.ceTaskUrl,
+    analysisId: extras.analysisId,
+    totalIssues: issues.length,
+    issues,
+  };
+}
+
+async function hasProjectAnalyses(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  try {
+    const result = await fetchJson<{ analyses?: Array<{ key?: string }> }>(
+      `${serverUrl}/api/project_analyses/search?project=${encodeURIComponent(projectKey)}&ps=1`,
+      token,
+      signal,
+    );
+    return (result.analyses?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function loadProjectIssuesFromApi(
+  ctx: ExtensionContext,
+  inputPath?: string,
+): Promise<SonarAnalysisState | undefined> {
+  try {
+    const config = await resolveConfig(ctx, inputPath);
+    const hasAnalyses = await hasProjectAnalyses(config.serverUrl, config.token, config.projectKey, ctx.signal);
+    if (!hasAnalyses) return undefined;
+    const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
+    return createAnalysisState(config, issues);
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Analysis orchestration ────────────────────────────────────────────────────
 
 async function analyzeProject(
@@ -699,18 +756,11 @@ async function analyzeProject(
       : undefined;
     const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
 
-    const state: SonarAnalysisState = {
-      version: 1,
-      analyzedAt: nowIso(),
-      baseDir: config.baseDir,
-      serverUrl: config.serverUrl,
-      projectKey: config.projectKey,
+    const state = createAnalysisState(config, issues, {
       dashboardUrl,
       ceTaskUrl,
       analysisId,
-      totalIssues: issues.length,
-      issues,
-    };
+    });
 
     pi.appendEntry(STATE_TYPE, state);
     ctx.ui.setStatus("sonarqube", formatSummary(state));
@@ -817,6 +867,10 @@ function helpText(): string {
   ].join("\n");
 }
 
+function targetLabel(targetInput?: string): string {
+  return targetInput ? ` ${targetInput}` : "";
+}
+
 // ── Command arg parsing ───────────────────────────────────────────────────────
 
 type ParsedSonarCommand =
@@ -904,14 +958,16 @@ export default function sonarqube(pi: ExtensionAPI) {
         };
       }
 
-      const target = await resolveTarget(ctx, params.path);
-      const targetState = statesByBaseDir.get(target.baseDir);
+      const resolvedTarget = await resolveTarget(ctx, params.path);
+      const targetState = statesByBaseDir.get(resolvedTarget.baseDir) ?? (await loadProjectIssuesFromApi(ctx, params.path));
       if (!targetState) {
         return {
           content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
           details: { error: "No SonarQube analysis has been run for this target yet." },
         };
       }
+
+      rememberState(targetState);
 
       if (params.action === "issues") {
         return {
@@ -1010,17 +1066,24 @@ export default function sonarqube(pi: ExtensionAPI) {
         const state = await analyzeProject(pi, ctx, parsed.targetInput);
         rememberState(state);
         if (ctx.hasUI) {
-          ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues to browse.`, state.issues.length === 0 ? "info" : "warning");
+          const scope = targetLabel(parsed.targetInput);
+          ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues${scope} to browse.`, state.issues.length === 0 ? "info" : "warning");
         }
         return;
       }
 
-      const target = await resolveTarget(ctx, parsed.targetInput);
-      const targetState = statesByBaseDir.get(target.baseDir);
+      const cachedTarget = parsed.targetInput ? statesByBaseDir.get((await resolveTarget(ctx, parsed.targetInput)).baseDir) : latestState;
+      const targetState = cachedTarget ?? (await loadProjectIssuesFromApi(ctx, parsed.targetInput));
       if (!targetState) {
-        if (ctx.hasUI) ctx.ui.notify("No SonarQube analysis has been run for this target yet.", "warning");
+        if (ctx.hasUI) {
+          ctx.ui.notify(
+            `No SonarQube analysis found for this target. Run /sonarqube analyze${targetLabel(parsed.targetInput)} first.`,
+            "warning",
+          );
+        }
         return;
       }
+      rememberState(targetState);
 
       // --- Issues ---
       if (parsed.action === "issues") {
