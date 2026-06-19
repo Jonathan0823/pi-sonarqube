@@ -128,6 +128,10 @@ packages/pi-sonarqube/
 └── tsconfig.json
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT
