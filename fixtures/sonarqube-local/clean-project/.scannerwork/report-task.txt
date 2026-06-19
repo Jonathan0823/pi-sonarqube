@@ -1,0 +1,2 @@
+ceTaskUrl=http://127.0.0.1:43124/api/ce/task?id=abc
+dashboardUrl=http://127.0.0.1:43124/dashboard?id=analysis-clean

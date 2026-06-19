@@ -1,0 +1,52 @@
+{
+  "name": "@jonathan0823/pi-sonarqube",
+  "version": "0.1.0",
+  "description": "SonarQube extension for Pi — run local analysis and browse issues.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepack": "npm run build",
+    "pack": "npm pack"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "sonarqube",
+    "code-quality"
+  ],
+  "license": "MIT",
+  "author": "Jonathan0823",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jonathan0823/pi-config.git"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.6",
+    "@earendil-works/pi-coding-agent": "^0.79.6",
+    "@earendil-works/pi-tui": "^0.79.6",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  }
+}
