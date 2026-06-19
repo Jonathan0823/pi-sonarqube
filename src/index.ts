@@ -660,9 +660,6 @@ async function openIssuePreview(
 // ── Init command ──────────────────────────────────────────────────────────────
 
 async function initCommandHandler(ctx: ExtensionCommandContext): Promise<void> {
-  const cfgDir = sonarqubeConfigDir(ctx.cwd);
-  await mkdir(cfgDir, { recursive: true });
-
   const existing = await loadProjectConfig(ctx.cwd);
 
   if (existing) {
@@ -676,17 +673,17 @@ async function initCommandHandler(ctx: ExtensionCommandContext): Promise<void> {
     }
   }
 
-  const serverUrl = normalizeServerUrl(
-    (await ctx.ui.editor("SonarQube server URL", existing?.serverUrl ?? "http://localhost:9000")) ??
-      existing?.serverUrl ??
-      "http://localhost:9000",
-  );
+  const serverUrlInput = await ctx.ui.editor("SonarQube server URL", existing?.serverUrl ?? "http://localhost:9000");
+  if (serverUrlInput === undefined) return;
+  const serverUrl = normalizeServerUrl(serverUrlInput || existing?.serverUrl || "http://localhost:9000");
 
-  const projectKey =
-    (await ctx.ui.input("SonarQube project key", existing?.projectKey ?? basename(ctx.cwd))) ?? existing?.projectKey ?? slugify(basename(ctx.cwd));
+  const projectKeyInput = await ctx.ui.input("SonarQube project key", existing?.projectKey ?? basename(ctx.cwd));
+  if (projectKeyInput === undefined) return;
+  const projectKey = projectKeyInput || existing?.projectKey || slugify(basename(ctx.cwd));
 
-  const token =
-    (await ctx.ui.input("SonarQube token (optional, press Enter to skip)", existing?.token ?? "")) || undefined;
+  const tokenInput = await ctx.ui.input("SonarQube token (optional, press Enter to skip)", existing?.token ?? "");
+  if (tokenInput === undefined) return;
+  const token = tokenInput.trim() || undefined;
 
   const initConfig: SonarInitConfig = {
     serverUrl,
