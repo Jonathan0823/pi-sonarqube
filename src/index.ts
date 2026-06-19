@@ -282,15 +282,7 @@ function formatReport(state: SonarAnalysisState): string {
 function issueWidgetLines(state: SonarAnalysisState): string[] {
   const lines = [formatSummary(state), `Last run: ${state.analyzedAt}`];
   if (state.issues.length > 0) {
-    lines.push("");
-    for (const issue of state.issues.slice(0, 5)) {
-      lines.push(formatIssue(issue));
-    }
-    if (state.issues.length > 5) {
-      lines.push(`... ${state.issues.length - 5} more`);
-    }
-    lines.push("");
-    lines.push("/sonarqube issues to browse; /sonarqube open <n> to preview.");
+    lines.push("Use /sonarqube issues to browse.");
   }
   return lines;
 }
@@ -685,7 +677,7 @@ async function initCommandHandler(ctx: ExtensionCommandContext): Promise<void> {
   }
 
   const serverUrl = normalizeServerUrl(
-    (await ctx.ui.input("SonarQube server URL", existing?.serverUrl ?? "http://localhost:9000")) ??
+    (await ctx.ui.editor("SonarQube server URL", existing?.serverUrl ?? "http://localhost:9000")) ??
       existing?.serverUrl ??
       "http://localhost:9000",
   );
@@ -720,7 +712,6 @@ function helpText(): string {
     "  /sonarqube            show this help",
     "",
     "Defaults:",
-    "  server URL defaults to http://localhost:9000",
     "  config is stored in .pi/sonarqube.json",
   ].join("\n");
 }
@@ -893,14 +884,7 @@ export default function sonarqube(pi: ExtensionAPI) {
         const state = await analyzeProject(pi, ctx, parsed.path);
         latestState = state;
         if (ctx.hasUI) {
-          ctx.ui.notify(formatSummary(state), state.issues.length === 0 ? "info" : "warning");
-        }
-        if (state.issues.length > 0) {
-          const choice = await showIssueBrowser(ctx, state);
-          if (choice !== null && choice !== undefined) {
-            const issue = state.issues[choice];
-            if (issue) await openIssuePreview(ctx, state, issue);
-          }
+          ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues to browse.`, state.issues.length === 0 ? "info" : "warning");
         }
         return;
       }
