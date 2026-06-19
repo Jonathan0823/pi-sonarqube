@@ -215,6 +215,10 @@ function looksLikePath(token: string): boolean {
   );
 }
 
+function knownTargets(registry: SonarWorkspaceRegistry): string[] {
+  return Object.keys(registry.workspaces).sort();
+}
+
 async function resolveTarget(ctx: ExtensionContext, targetInput?: string): Promise<ResolvedTarget> {
   const { repoRoot, registry } = await loadWorkspaceRegistry(ctx.cwd);
   if (!targetInput) {
@@ -223,10 +227,31 @@ async function resolveTarget(ctx: ExtensionContext, targetInput?: string): Promi
 
   const aliasTarget = registry.workspaces[targetInput];
   if (aliasTarget) {
-    return { baseDir: resolve(repoRoot, aliasTarget), repoRoot, alias: targetInput };
+    const baseDir = resolve(repoRoot, aliasTarget);
+    const baseDirStat = await stat(baseDir).catch(() => undefined);
+    if (!baseDirStat?.isDirectory()) {
+      throw new Error(`SonarQube target "${targetInput}" points to a missing directory: ${baseDir}`);
+    }
+    return { baseDir, repoRoot, alias: targetInput };
   }
 
-  return { baseDir: normalizePath(targetInput, ctx.cwd), repoRoot };
+  if (looksLikePath(targetInput)) {
+    const baseDir = normalizePath(targetInput, ctx.cwd);
+    const baseDirStat = await stat(baseDir).catch(() => undefined);
+    if (!baseDirStat?.isDirectory()) {
+      throw new Error(`SonarQube target path not found: ${baseDir}`);
+    }
+    return { baseDir, repoRoot };
+  }
+
+  const known = knownTargets(registry);
+  if (known.length > 0) {
+    throw new Error(
+      `Unknown SonarQube target "${targetInput}". Known targets: ${known.join(", ")}. Use /sonarqube init <alias> <path> to add one.`,
+    );
+  }
+
+  throw new Error(`Unknown SonarQube target "${targetInput}". Use /sonarqube init <alias> <path> to add one.`);
 }
 
 async function resolveInitTarget(
@@ -714,16 +739,10 @@ async function hasProjectAnalyses(
 async function loadProjectIssuesFromApi(
   ctx: ExtensionContext,
   inputPath?: string,
-): Promise<SonarAnalysisState | undefined> {
-  try {
-    const config = await resolveConfig(ctx, inputPath);
-    const hasAnalyses = await hasProjectAnalyses(config.serverUrl, config.token, config.projectKey, ctx.signal);
-    if (!hasAnalyses) return undefined;
-    const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
-    return createAnalysisState(config, issues);
-  } catch {
-    return undefined;
-  }
+): Promise<SonarAnalysisState> {
+  const config = await resolveConfig(ctx, inputPath);
+  const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
+  return createAnalysisState(config, issues);
 }
 
 async function resolveTargetState(
@@ -732,9 +751,13 @@ async function resolveTargetState(
   targetInput?: string,
 ): Promise<SonarAnalysisState | undefined> {
   const resolvedTarget = await resolveTarget(ctx, targetInput);
-  const apiState = await loadProjectIssuesFromApi(ctx, targetInput);
-  if (apiState) return apiState;
-  return statesByBaseDir.get(resolvedTarget.baseDir);
+  try {
+    return await loadProjectIssuesFromApi(ctx, targetInput);
+  } catch (error) {
+    const cached = statesByBaseDir.get(resolvedTarget.baseDir);
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 // ── Analysis orchestration ────────────────────────────────────────────────────
@@ -882,6 +905,10 @@ function targetLabel(targetInput?: string): string {
   return targetInput ? ` ${targetInput}` : "";
 }
 
+function sonarErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ── Command arg parsing ───────────────────────────────────────────────────────
 
 type ParsedSonarCommand =
@@ -960,46 +987,51 @@ export default function sonarqube(pi: ExtensionAPI) {
     parameters: SonarToolParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (params.action === "analyze") {
-        const state = await analyzeProject(pi, ctx, params.path);
-        rememberState(state);
+      try {
+        if (params.action === "analyze") {
+          const state = await analyzeProject(pi, ctx, params.path);
+          rememberState(state);
+          return {
+            content: [{ type: "text", text: formatReport(state) }],
+            details: state,
+          };
+        }
+
+        const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path);
+        if (!targetState) {
+          return {
+            content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
+            details: { error: "No SonarQube analysis has been run for this target yet." },
+          };
+        }
+
+        rememberState(targetState);
+
+        if (params.action === "issues") {
+          return {
+            content: [{ type: "text", text: formatReport(targetState) }],
+            details: targetState,
+          };
+        }
+
+        const index = params.issueIndex ?? 1;
+        const issue = targetState.issues[index - 1];
+        if (!issue) {
+          return {
+            content: [{ type: "text", text: `Issue #${index} was not found.` }],
+            details: { error: `Issue #${index} was not found.` },
+          };
+        }
+
+        const preview = await buildIssuePreview(targetState.baseDir, issue);
         return {
-          content: [{ type: "text", text: formatReport(state) }],
-          details: state,
+          content: [{ type: "text", text: `${formatIssue(issue, index)}\n\n${preview}` }],
+          details: { ...targetState, selectedIssue: issue },
         };
+      } catch (error) {
+        const message = sonarErrorMessage(error);
+        return { content: [{ type: "text", text: message }], details: { error: message } };
       }
-
-      const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path);
-      if (!targetState) {
-        return {
-          content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
-          details: { error: "No SonarQube analysis has been run for this target yet." },
-        };
-      }
-
-      rememberState(targetState);
-
-      if (params.action === "issues") {
-        return {
-          content: [{ type: "text", text: formatReport(targetState) }],
-          details: targetState,
-        };
-      }
-
-      const index = params.issueIndex ?? 1;
-      const issue = targetState.issues[index - 1];
-      if (!issue) {
-        return {
-          content: [{ type: "text", text: `Issue #${index} was not found.` }],
-          details: { error: `Issue #${index} was not found.` },
-        };
-      }
-
-      const preview = await buildIssuePreview(targetState.baseDir, issue);
-      return {
-        content: [{ type: "text", text: `${formatIssue(issue, index)}\n\n${preview}` }],
-        details: { ...targetState, selectedIssue: issue },
-      };
     },
 
     renderCall(args, theme, _context) {
@@ -1055,67 +1087,75 @@ export default function sonarqube(pi: ExtensionAPI) {
     description:
       "Run a local SonarQube analysis, browse the latest issues, or init project config",
     handler: async (args, ctx) => {
-      const parsed = parseCommandArgs(args);
+      try {
+        const parsed = parseCommandArgs(args);
 
-      // --- Help ---
-      if (parsed.action === "help") {
-        if (ctx.hasUI) {
-          ctx.ui.notify(helpText(), "info");
-        }
-        return;
-      }
-
-      // --- Init ---
-      if (parsed.action === "init") {
-        await initCommandHandler(ctx, { alias: parsed.alias, targetInput: parsed.targetInput });
-        return;
-      }
-
-      // --- Analyze ---
-      if (parsed.action === "analyze") {
-        const state = await analyzeProject(pi, ctx, parsed.targetInput);
-        rememberState(state);
-        if (ctx.hasUI) {
-          const scope = targetLabel(parsed.targetInput);
-          ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues${scope} to browse.`, state.issues.length === 0 ? "info" : "warning");
-        }
-        return;
-      }
-
-      const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput);
-      if (!targetState) {
-        if (ctx.hasUI) {
-          ctx.ui.notify(
-            `No SonarQube analysis found for this target. Run /sonarqube analyze${targetLabel(parsed.targetInput)} first.`,
-            "warning",
-          );
-        }
-        return;
-      }
-      rememberState(targetState);
-
-      // --- Issues ---
-      if (parsed.action === "issues") {
-        if (targetState.issues.length === 0) {
-          if (ctx.hasUI) ctx.ui.notify(formatSummary(targetState), "info");
+        // --- Help ---
+        if (parsed.action === "help") {
+          if (ctx.hasUI) {
+            ctx.ui.notify(helpText(), "info");
+          }
           return;
         }
-        const choice = await showIssueBrowser(ctx, targetState);
-        if (choice !== null && choice !== undefined) {
-          const issue = targetState.issues[choice];
-          if (issue) await openIssuePreview(ctx, targetState, issue);
-        }
-        return;
-      }
 
-      // --- Open ---
-      const index = parsed.issueIndex ?? 1;
-      const issue = targetState.issues[index - 1];
-      if (!issue) {
-        if (ctx.hasUI) ctx.ui.notify(`Issue #${index} was not found.`, "error");
-        return;
+        // --- Init ---
+        if (parsed.action === "init") {
+          await initCommandHandler(ctx, { alias: parsed.alias, targetInput: parsed.targetInput });
+          return;
+        }
+
+        // --- Analyze ---
+        if (parsed.action === "analyze") {
+          const state = await analyzeProject(pi, ctx, parsed.targetInput);
+          rememberState(state);
+          if (ctx.hasUI) {
+            const scope = targetLabel(parsed.targetInput);
+            ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues${scope} to browse.`, state.issues.length === 0 ? "info" : "warning");
+          }
+          return;
+        }
+
+        const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput);
+        if (!targetState) {
+          if (ctx.hasUI) {
+            ctx.ui.notify(
+              `No SonarQube analysis found for this target. Run /sonarqube analyze${targetLabel(parsed.targetInput)} first.`,
+              "warning",
+            );
+          }
+          return;
+        }
+        rememberState(targetState);
+
+        // --- Issues ---
+        if (parsed.action === "issues") {
+          if (targetState.issues.length === 0) {
+            if (ctx.hasUI) ctx.ui.notify(formatSummary(targetState), "info");
+            return;
+          }
+          const choice = await showIssueBrowser(ctx, targetState);
+          if (choice !== null && choice !== undefined) {
+            const issue = targetState.issues[choice];
+            if (issue) await openIssuePreview(ctx, targetState, issue);
+          }
+          return;
+        }
+
+        // --- Open ---
+        const index = parsed.issueIndex ?? 1;
+        const issue = targetState.issues[index - 1];
+        if (!issue) {
+          if (ctx.hasUI) ctx.ui.notify(`Issue #${index} was not found.`, "error");
+          return;
+        }
+        await openIssuePreview(ctx, targetState, issue);
+      } catch (error) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(sonarErrorMessage(error), "error");
+          return;
+        }
+        throw error;
       }
-      await openIssuePreview(ctx, targetState, issue);
     },
   });
 }
