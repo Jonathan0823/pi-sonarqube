@@ -7,6 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { Type } from "typebox";
@@ -35,6 +36,7 @@ export interface SonarAnalysisState {
   dashboardUrl?: string;
   ceTaskUrl?: string;
   analysisId?: string;
+  filters?: SonarIssueFetchOptions;
   totalIssues: number;
   issues: SonarIssue[];
 }
@@ -45,6 +47,13 @@ export interface SonarProjectConfig {
   projectKey: string;
   token?: string;
   hasProperties: boolean;
+}
+
+export interface SonarIssueFetchOptions {
+  severities?: string[];
+  statuses?: string[];
+  types?: string[];
+  rules?: string[];
 }
 
 export interface SonarInitConfig {
@@ -61,7 +70,18 @@ const SonarToolParams = Type.Object({
   action: StringEnum(["analyze", "issues", "open"] as const),
   path: Type.Optional(Type.String({ description: "Target alias or project directory to analyze or inspect" })),
   issueIndex: Type.Optional(Type.Number({ description: "1-based issue index to open" })),
+  severities: Type.Optional(Type.Array(Type.String({ description: "Issue severity to fetch (e.g. CRITICAL)" }))),
+  statuses: Type.Optional(Type.Array(Type.String({ description: "Issue status to fetch (e.g. OPEN)" }))),
+  types: Type.Optional(Type.Array(Type.String({ description: "Issue type to fetch (e.g. BUG)" }))),
+  rules: Type.Optional(Type.Array(Type.String({ description: "Rule keys to fetch" }))),
 });
+
+const SONAR_COMMANDS = [
+  { value: "analyze", label: "analyze", description: "run analysis and fetch issues" },
+  { value: "issues", label: "issues", description: "browse the latest issues" },
+  { value: "open", label: "open", description: "preview a specific issue" },
+  { value: "init", label: "init", description: "configure a project target" },
+] as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,6 +123,99 @@ function normalizeServerUrl(url: string | undefined): string {
   if (!url?.trim()) return fallback;
   return url.trim().replace(/\/+$/, "");
 }
+
+const SONAR_SEVERITIES = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"] as const;
+const SONAR_STATUSES = ["OPEN", "CONFIRMED", "REOPENED", "RESOLVED", "CLOSED"] as const;
+const SONAR_TYPES = ["BUG", "VULNERABILITY", "CODE_SMELL"] as const;
+
+function createAutocompleteItem(value: string, description?: string): AutocompleteItem {
+  return description ? { value, label: value, description } : { value, label: value };
+}
+
+function filterAutocompleteItems(
+  items: readonly { value: string; label: string; description?: string }[],
+  prefix: string,
+): AutocompleteItem[] {
+  const query = prefix.trim().toLowerCase();
+  const filtered = query
+    ? items.filter((item) => item.value.toLowerCase().startsWith(query) || item.label.toLowerCase().startsWith(query))
+    : [...items];
+  return filtered.map((item) => ({ value: item.value, label: item.label, description: item.description }));
+}
+
+function mergeAutocompleteSuggestions(
+  prefix: string,
+  current: AutocompleteSuggestions | null,
+  extraItems: AutocompleteItem[],
+): AutocompleteSuggestions | null {
+  const merged = new Map<string, AutocompleteItem>();
+  for (const item of current?.items ?? []) merged.set(item.value, item);
+  for (const item of extraItems) merged.set(item.value, item);
+  const items = [...merged.values()];
+  return items.length > 0 ? { prefix, items } : current;
+}
+
+function splitSonarArgumentContext(argumentText: string): { command: string; current: string; tokens: string[] } {
+  const trimmedLeft = argumentText.replace(/^\s+/, "");
+  if (!trimmedLeft) return { command: "", current: "", tokens: [] };
+
+  const tokens = trimmedLeft.split(/\s+/);
+  const current = /\s$/.test(argumentText) ? "" : tokens.pop() ?? "";
+  return { command: tokens[0] ?? current, current, tokens: tokens.length > 0 ? tokens : current ? [current] : [] };
+}
+
+function createFilterCompletionList(): AutocompleteItem[] {
+  return [
+    ...SONAR_SEVERITIES.flatMap((value) => [
+      createAutocompleteItem(`severity:${value}`, "severity"),
+      createAutocompleteItem(value, "severity"),
+    ]),
+    ...SONAR_STATUSES.flatMap((value) => [
+      createAutocompleteItem(`status:${value}`, "status"),
+      createAutocompleteItem(value, "status"),
+    ]),
+    ...SONAR_TYPES.flatMap((value) => [
+      createAutocompleteItem(`type:${value}`, "type"),
+      createAutocompleteItem(value, "type"),
+    ]),
+  ];
+}
+
+function sonarArgumentCompletions(argumentText: string, issues?: SonarIssue[]): AutocompleteItem[] | null {
+  const { command, current, tokens } = splitSonarArgumentContext(argumentText);
+  const lowerCommand = command.toLowerCase();
+  const commandMatches = SONAR_COMMANDS.filter((item) => item.value.startsWith(lowerCommand));
+
+  if (!command || commandMatches.length > 1 || !SONAR_COMMANDS.some((item) => item.value === lowerCommand)) {
+    return commandMatches.length > 0 ? commandMatches.map((item) => createAutocompleteItem(item.value, item.description)) : null;
+  }
+
+  if (lowerCommand === "open") {
+    const issueItems = (issues ?? []).slice(0, 10).map((issue, index) =>
+      createAutocompleteItem(
+        String(index + 1),
+        `${issue.severity} ${issue.filePath}${issue.line ? `:${issue.line}` : ""}`,
+      ),
+    );
+    const suggestions = [...issueItems, ...createFilterCompletionList()];
+    const filtered = filterAutocompleteItems(suggestions, current);
+    return filtered.length > 0 ? filtered : null;
+  }
+
+  if (lowerCommand === "analyze" || lowerCommand === "issues") {
+    const suggestions = createFilterCompletionList();
+    const filtered = filterAutocompleteItems(suggestions, current);
+    return filtered.length > 0 ? filtered : null;
+  }
+
+  if (lowerCommand === "init") {
+    return null;
+  }
+
+  return tokens.length === 0 ? filterAutocompleteItems(SONAR_COMMANDS, current) : null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function resolveProjectKey(baseDir: string, props: Record<string, string>): string {
   const fromProps = props["sonar.projectKey"]?.trim();
@@ -334,6 +447,140 @@ function toIssuePath(component: string, projectKey: string): string {
   return colon >= 0 ? component.slice(colon + 1) : component;
 }
 
+function normalizeIssueList(values?: string[], uppercase = false): string[] | undefined {
+  const cleaned = values
+    ?.map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => (uppercase ? value.toUpperCase() : value));
+  if (!cleaned?.length) return undefined;
+  return [...new Set(cleaned)];
+}
+
+function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIssueFetchOptions | undefined {
+  const normalized = {
+    severities: normalizeIssueList(filters?.severities, true),
+    statuses: normalizeIssueList(filters?.statuses, true),
+    types: normalizeIssueList(filters?.types, true),
+    rules: normalizeIssueList(filters?.rules),
+  };
+  return normalized.severities || normalized.statuses || normalized.types || normalized.rules ? normalized : undefined;
+}
+
+function mergeIssueFilters(...filters: Array<Partial<SonarIssueFetchOptions> | undefined>): SonarIssueFetchOptions | undefined {
+  const merged: SonarIssueFetchOptions = {};
+  for (const filter of filters) {
+    if (!filter) continue;
+    if (filter.severities?.length) merged.severities = [...(merged.severities ?? []), ...filter.severities];
+    if (filter.statuses?.length) merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
+    if (filter.types?.length) merged.types = [...(merged.types ?? []), ...filter.types];
+    if (filter.rules?.length) merged.rules = [...(merged.rules ?? []), ...filter.rules];
+  }
+  return normalizeIssueFilters(merged);
+}
+
+function splitFilterValues(value: string): string[] {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOptions> | undefined {
+  const trimmed = token.trim();
+  if (!trimmed) return undefined;
+
+  const explicit = trimmed.match(/^([^:=]+)[:=](.+)$/);
+  if (explicit) {
+    const key = explicit[1].trim().toLowerCase();
+    const values = splitFilterValues(explicit[2]);
+    if (values.length === 0) return undefined;
+
+    if (key === "severity" || key === "severities") return { severities: values.map((value) => value.toUpperCase()) };
+    if (key === "status" || key === "statuses") return { statuses: values.map((value) => value.toUpperCase()) };
+    if (key === "type" || key === "types") return { types: values.map((value) => value.toUpperCase()) };
+    if (key === "rule" || key === "rules") return { rules: values };
+    return undefined;
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (SONAR_SEVERITIES.includes(upper as (typeof SONAR_SEVERITIES)[number])) return { severities: [upper] };
+  if (SONAR_STATUSES.includes(upper as (typeof SONAR_STATUSES)[number])) return { statuses: [upper] };
+  if (SONAR_TYPES.includes(upper as (typeof SONAR_TYPES)[number])) return { types: [upper] };
+  return undefined;
+}
+
+interface ParsedSonarIssueArgs {
+  targetInput?: string;
+  issueIndex?: number;
+  filters?: SonarIssueFetchOptions;
+}
+
+function parseSonarIssueArgs(tokens: string[], allowIssueIndex = false): ParsedSonarIssueArgs {
+  const filters: Array<Partial<SonarIssueFetchOptions> | undefined> = [];
+  let targetInput: string | undefined;
+  let issueIndex: number | undefined;
+
+  for (const token of tokens) {
+    if (!token) continue;
+    if (allowIssueIndex && issueIndex === undefined && /^\d+$/.test(token)) {
+      issueIndex = Number(token);
+      continue;
+    }
+
+    const parsedFilter = parseIssueFilterToken(token);
+    if (parsedFilter) {
+      filters.push(parsedFilter);
+      continue;
+    }
+
+    if (!targetInput) {
+      targetInput = token;
+    }
+  }
+
+  return {
+    targetInput,
+    issueIndex,
+    filters: mergeIssueFilters(...filters),
+  };
+}
+
+function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
+  if (!filters) return "";
+  const parts = [
+    filters.severities?.length ? `severities=${filters.severities.join(",")}` : "",
+    filters.statuses?.length ? `statuses=${filters.statuses.join(",")}` : "",
+    filters.types?.length ? `types=${filters.types.join(",")}` : "",
+    filters.rules?.length ? `rules=${filters.rules.join(",")}` : "",
+  ].filter(Boolean);
+  return parts.join(" • ");
+}
+
+function severitySortRank(severity: string): number {
+  switch (severity.toUpperCase()) {
+    case "BLOCKER":
+      return 0;
+    case "CRITICAL":
+      return 1;
+    case "MAJOR":
+      return 2;
+    case "MINOR":
+      return 3;
+    case "INFO":
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+function compareIssuesForContext(left: SonarIssue, right: SonarIssue): number {
+  const severityDiff = severitySortRank(left.severity) - severitySortRank(right.severity);
+  if (severityDiff !== 0) return severityDiff;
+  const fileDiff = left.filePath.localeCompare(right.filePath);
+  if (fileDiff !== 0) return fileDiff;
+  const leftLine = left.line ?? Number.POSITIVE_INFINITY;
+  const rightLine = right.line ?? Number.POSITIVE_INFINITY;
+  if (leftLine !== rightLine) return leftLine - rightLine;
+  return left.message.localeCompare(right.message);
+}
+
 // ── Issue helpers ─────────────────────────────────────────────────────────────
 
 function buildIssuePreview(baseDir: string, issue: SonarIssue, radius = 3): Promise<string> {
@@ -367,9 +614,10 @@ function formatIssue(issue: SonarIssue, index?: number): string {
 function formatSummary(state: SonarAnalysisState): string {
   const issueCount = state.totalIssues;
   const noIssues = issueCount === 0;
+  const filterLabel = state.filters ? ` (${issueFilterLabel(state.filters)})` : "";
   return noIssues
-    ? `SonarQube: no issues found for ${state.projectKey}`
-    : `SonarQube: ${issueCount} issue${issueCount === 1 ? "" : "s"} found for ${state.projectKey}`;
+    ? `SonarQube: no issues found for ${state.projectKey}${filterLabel}`
+    : `SonarQube: ${issueCount} issue${issueCount === 1 ? "" : "s"} found for ${state.projectKey}${filterLabel}`;
 }
 
 function formatReport(state: SonarAnalysisState): string {
@@ -379,6 +627,10 @@ function formatReport(state: SonarAnalysisState): string {
     `Base dir: ${state.baseDir}`,
     `Issues: ${state.totalIssues}`,
   ];
+
+  if (state.filters) {
+    lines.push(`Filters: ${issueFilterLabel(state.filters)}`);
+  }
 
   if (state.issues.length === 0) {
     lines.push("No open issues found.");
@@ -456,7 +708,10 @@ class IssueBrowser {
 
     const lines: string[] = [];
     const title = this.theme.fg("accent", this.theme.bold(" SonarQube Issues "));
-    const subtitle = this.theme.fg("dim", `${this.state.projectKey} • ${this.state.totalIssues} issue(s)`);
+    const subtitleText = this.state.filters
+      ? `${this.state.projectKey} • ${this.state.totalIssues} issue(s) • ${issueFilterLabel(this.state.filters)}`
+      : `${this.state.projectKey} • ${this.state.totalIssues} issue(s)`;
+    const subtitle = this.theme.fg("dim", subtitleText);
     lines.push(truncateToWidth(title, width));
     lines.push(truncateToWidth(subtitle, width));
     lines.push("");
@@ -654,14 +909,33 @@ async function fetchIssues(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
+  filters?: SonarIssueFetchOptions,
 ): Promise<SonarIssue[]> {
+  const normalizedFilters = normalizeIssueFilters(filters);
   const issues: SonarIssue[] = [];
   const ruleNames = new Map<string, string | undefined>();
   let page = 1;
   let total = 0;
 
   for (;;) {
-    const url = `${serverUrl}/api/issues/search?componentKeys=${encodeURIComponent(projectKey)}&resolved=false&ps=100&p=${page}`;
+    const url = new URL("/api/issues/search", serverUrl);
+    url.searchParams.set("componentKeys", projectKey);
+    url.searchParams.set("resolved", "false");
+    url.searchParams.set("ps", "100");
+    url.searchParams.set("p", String(page));
+    if (normalizedFilters?.severities?.length) {
+      url.searchParams.set("severities", normalizedFilters.severities.join(","));
+    }
+    if (normalizedFilters?.statuses?.length) {
+      url.searchParams.set("statuses", normalizedFilters.statuses.join(","));
+    }
+    if (normalizedFilters?.types?.length) {
+      url.searchParams.set("types", normalizedFilters.types.join(","));
+    }
+    if (normalizedFilters?.rules?.length) {
+      url.searchParams.set("rules", normalizedFilters.rules.join(","));
+    }
+
     const result = await fetchJson<{
       total: number;
       issues: Array<{
@@ -673,7 +947,7 @@ async function fetchIssues(
         line?: number;
         status?: string;
       }>;
-    }>(url, token, signal);
+    }>(url.toString(), token, signal);
 
     total = result.total;
     for (const raw of result.issues) {
@@ -696,13 +970,17 @@ async function fetchIssues(
     page += 1;
   }
 
+  if (normalizedFilters && issues.length > 1) {
+    issues.sort(compareIssuesForContext);
+  }
+
   return issues;
 }
 
 function createAnalysisState(
   config: Pick<SonarProjectConfig, "baseDir" | "serverUrl" | "projectKey">,
   issues: SonarIssue[],
-  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId">> = {},
+  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters">> = {},
 ): SonarAnalysisState {
   return {
     version: 1,
@@ -713,6 +991,7 @@ function createAnalysisState(
     dashboardUrl: extras.dashboardUrl,
     ceTaskUrl: extras.ceTaskUrl,
     analysisId: extras.analysisId,
+    filters: extras.filters,
     totalIssues: issues.length,
     issues,
   };
@@ -739,20 +1018,23 @@ async function hasProjectAnalyses(
 async function loadProjectIssuesFromApi(
   ctx: ExtensionContext,
   inputPath?: string,
+  filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState> {
   const config = await resolveConfig(ctx, inputPath);
-  const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
-  return createAnalysisState(config, issues);
+  const normalizedFilters = normalizeIssueFilters(filters);
+  const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal, normalizedFilters);
+  return createAnalysisState(config, issues, { filters: normalizedFilters });
 }
 
 async function resolveTargetState(
   ctx: ExtensionContext,
   statesByBaseDir: Map<string, SonarAnalysisState>,
   targetInput?: string,
+  filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState | undefined> {
   const resolvedTarget = await resolveTarget(ctx, targetInput);
   try {
-    return await loadProjectIssuesFromApi(ctx, targetInput);
+    return await loadProjectIssuesFromApi(ctx, targetInput, filters);
   } catch (error) {
     const cached = statesByBaseDir.get(resolvedTarget.baseDir);
     if (cached) return cached;
@@ -766,6 +1048,7 @@ async function analyzeProject(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   inputPath?: string,
+  filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState> {
   const config = await resolveConfig(ctx, inputPath);
   const baseDirStat = await stat(config.baseDir).catch(() => undefined);
@@ -788,12 +1071,14 @@ async function analyzeProject(
     const analysisId = ceTaskUrl
       ? await waitForAnalysis(config.serverUrl, config.token, ceTaskUrl, ctx.signal)
       : undefined;
-    const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal);
+    const normalizedFilters = normalizeIssueFilters(filters);
+    const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal, normalizedFilters);
 
     const state = createAnalysisState(config, issues, {
       dashboardUrl,
       ceTaskUrl,
       analysisId,
+      filters: normalizedFilters,
     });
 
     pi.appendEntry(STATE_TYPE, state);
@@ -889,15 +1174,22 @@ function helpText(): string {
   return [
     "SonarQube commands:",
     "",
-    "  /sonarqube init [alias] [path]   configure target and optional alias",
-    "  /sonarqube analyze [target]      run analysis for alias or path",
-    "  /sonarqube issues [target]       browse latest issues for target",
-    "  /sonarqube open [target] <n>     preview issue #n for target",
+    "  /sonarqube init [alias] [path]   configure a project target",
+    "  /sonarqube analyze [target]      run analysis for a target or path",
+    "  /sonarqube issues [target]       browse issues for a target or path",
+    "  /sonarqube open [target] <n>     preview issue #n for a target or path",
     "  /sonarqube                       show this help",
+    "",
+    "Filters:",
+    "  /sonarqube issues be CRITICAL",
+    "  /sonarqube issues be severity:CRITICAL status:OPEN",
+    "",
+    "Autocomplete:",
+    "  type /sonarqube and press Tab to complete the subcommand or filters",
     "",
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
-    "  monorepo aliases live in .pi/sonarqube.workspaces.json",
+    "  use project paths directly (no alias needed)",
   ].join("\n");
 }
 
@@ -914,9 +1206,9 @@ function sonarErrorMessage(error: unknown): string {
 type ParsedSonarCommand =
   | { action: "help" }
   | { action: "init"; alias?: string; targetInput?: string }
-  | { action: "analyze"; targetInput?: string }
-  | { action: "issues"; targetInput?: string }
-  | { action: "open"; targetInput?: string; issueIndex?: number };
+  | { action: "analyze"; targetInput?: string; filters?: SonarIssueFetchOptions }
+  | { action: "issues"; targetInput?: string; filters?: SonarIssueFetchOptions }
+  | { action: "open"; targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions };
 
 function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -933,25 +1225,16 @@ function parseCommandArgs(args: string): ParsedSonarCommand {
     return { action: "init", alias: tokens[1], targetInput: tokens[2] };
   }
   if (head === "issues" || head === "view") {
-    return { action: "issues", targetInput: tokens[1] };
+    return { action: "issues", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
   if (head === "open") {
-    if (tokens.length === 2 && /^\d+$/.test(tokens[1])) {
-      return { action: "open", issueIndex: Number(tokens[1]) };
-    }
-    const targetInput = tokens[1];
-    const maybeIndex = tokens[2];
-    return {
-      action: "open",
-      targetInput,
-      issueIndex: maybeIndex && /^\d+$/.test(maybeIndex) ? Number(maybeIndex) : undefined,
-    };
+    return { action: "open", ...parseSonarIssueArgs(tokens.slice(1), true) };
   }
   if (head === "analyze" || head === "run") {
-    return { action: "analyze", targetInput: tokens[1] };
+    return { action: "analyze", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
 
-  return { action: "analyze", targetInput: tokens[0] };
+  return { action: "analyze", ...parseSonarIssueArgs(tokens) };
 }
 
 // ── Extension entrypoint ──────────────────────────────────────────────────────
@@ -971,6 +1254,34 @@ export default function sonarqube(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     await restore(ctx);
+
+    if (ctx.hasUI) {
+      ctx.ui.addAutocompleteProvider((current) => ({
+        async getSuggestions(lines, cursorLine, cursorCol, options) {
+          const line = lines[cursorLine] ?? "";
+          const beforeCursor = line.slice(0, cursorCol);
+          const match = beforeCursor.match(/^\/sonarqube(?:\s+(.*))?$/);
+          if (!match) {
+            return current.getSuggestions(lines, cursorLine, cursorCol, options);
+          }
+
+          const argumentText = match[1] ?? "";
+          const { current: currentToken } = splitSonarArgumentContext(argumentText);
+          const extraItems = sonarArgumentCompletions(argumentText, latestState?.issues) ?? [];
+          const currentSuggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
+          const merged = mergeAutocompleteSuggestions(currentToken, currentSuggestions, extraItems);
+          return merged ?? currentSuggestions;
+        },
+
+        applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+          return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+        },
+
+        shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+          return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+        },
+      }));
+    }
   });
   pi.on("session_tree", async (_event, ctx) => {
     await restore(ctx);
@@ -983,13 +1294,21 @@ export default function sonarqube(pi: ExtensionAPI) {
     promptSnippet: "Run local SonarQube analysis or inspect issue results",
     promptGuidelines: [
       "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
+      "Use the optional severity, status, type, and rule filters to fetch only the most relevant issues.",
     ],
     parameters: SonarToolParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
+        const filters = normalizeIssueFilters({
+          severities: params.severities,
+          statuses: params.statuses,
+          types: params.types,
+          rules: params.rules,
+        });
+
         if (params.action === "analyze") {
-          const state = await analyzeProject(pi, ctx, params.path);
+          const state = await analyzeProject(pi, ctx, params.path, filters);
           rememberState(state);
           return {
             content: [{ type: "text", text: formatReport(state) }],
@@ -997,7 +1316,7 @@ export default function sonarqube(pi: ExtensionAPI) {
           };
         }
 
-        const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path);
+        const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path, filters);
         if (!targetState) {
           return {
             content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
@@ -1035,10 +1354,17 @@ export default function sonarqube(pi: ExtensionAPI) {
     },
 
     renderCall(args, theme, _context) {
+      const filters = normalizeIssueFilters({
+        severities: args.severities,
+        statuses: args.statuses,
+        types: args.types,
+        rules: args.rules,
+      });
+      const filterText = filters ? ` ${theme.fg("muted", issueFilterLabel(filters))}` : "";
       return new Text(
         `${theme.fg("toolTitle", theme.bold("sonarqube"))} ${theme.fg("muted", args.action)}${
           args.path ? ` ${theme.fg("accent", args.path)}` : ""
-        }`,
+        }${filterText}`,
         0,
         0,
       );
@@ -1086,6 +1412,7 @@ export default function sonarqube(pi: ExtensionAPI) {
   pi.registerCommand("sonarqube", {
     description:
       "Run a local SonarQube analysis, browse the latest issues, or init project config",
+    getArgumentCompletions: (argumentPrefix) => sonarArgumentCompletions(argumentPrefix, latestState?.issues),
     handler: async (args, ctx) => {
       try {
         const parsed = parseCommandArgs(args);
@@ -1106,7 +1433,7 @@ export default function sonarqube(pi: ExtensionAPI) {
 
         // --- Analyze ---
         if (parsed.action === "analyze") {
-          const state = await analyzeProject(pi, ctx, parsed.targetInput);
+          const state = await analyzeProject(pi, ctx, parsed.targetInput, parsed.filters);
           rememberState(state);
           if (ctx.hasUI) {
             const scope = targetLabel(parsed.targetInput);
@@ -1115,7 +1442,7 @@ export default function sonarqube(pi: ExtensionAPI) {
           return;
         }
 
-        const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput);
+        const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput, parsed.filters);
         if (!targetState) {
           if (ctx.hasUI) {
             ctx.ui.notify(

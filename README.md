@@ -34,11 +34,11 @@ Inside a project directory, run:
 /sonarqube init
 ```
 
-For monorepos, you can add a user-defined alias and optional path:
+For monorepos, you can point at a path directly:
 
 ```
-/sonarqube init fe apps/web
-/sonarqube init be apps/api
+/sonarqube init apps/web
+/sonarqube init apps/api
 ```
 
 Pi will ask you for:
@@ -47,14 +47,14 @@ Pi will ask you for:
 - **Project key** (default: derived from directory name)
 - **Token** (optional, used when your server requires auth)
 
-The config is saved to `<project>/.pi/sonarqube.json`. Alias mappings live in the repo root `.pi/sonarqube.workspaces.json`.
+The config is saved to `<project>/.pi/sonarqube.json`.
 
 ### 2. Run analysis
 
 ```
 /sonarqube analyze
-/sonarqube analyze fe
 /sonarqube analyze apps/web
+/sonarqube analyze apps/api
 ```
 
 Pi will:
@@ -68,26 +68,28 @@ Pi will:
 
 ```
 /sonarqube issues
-/sonarqube issues fe
+/sonarqube issues apps/web
 ```
 
 Use **Up/Down** to move, **Enter** to preview the affected source code, and **Esc** to close.
+
+Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 
 ### 4. Open a specific issue
 
 ```
 /sonarqube open 3
-/sonarqube open fe 3
+/sonarqube open apps/web 3
 ```
 
 ## Commands
 
 | Command                          | Description                                     |
 | -------------------------------- | ----------------------------------------------- |
-| `/sonarqube init [alias] [path]` | Set up project config and optional alias        |
-| `/sonarqube analyze [target]`    | Run analysis for an alias or path               |
+| `/sonarqube init [path]`         | Set up project config for a path               |
+| `/sonarqube analyze [target]`    | Run analysis for a target or path              |
 | `/sonarqube issues [target]`     | Browse the latest analysis results for a target |
-| `/sonarqube open [target] <n>`   | Preview source at issue #n                      |
+| `/sonarqube open [target] <n>`   | Preview source at issue #n                     |
 
 ## Tool (for the LLM)
 
@@ -97,7 +99,9 @@ The extension also registers a `sonarqube` tool that the LLM can call with actio
 - `issues` — list issues
 - `open` — open an issue with its index
 
-Targets can be an alias like `fe` or a path like `apps/web`.
+The tool accepts optional issue filters (`severities`, `statuses`, `types`, `rules`) so the agent can fetch just blocker/critical context.
+
+Use paths directly.
 
 ## Configuration sources (precedence order)
 
