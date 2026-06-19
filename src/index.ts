@@ -726,6 +726,17 @@ async function loadProjectIssuesFromApi(
   }
 }
 
+async function resolveTargetState(
+  ctx: ExtensionContext,
+  statesByBaseDir: Map<string, SonarAnalysisState>,
+  targetInput?: string,
+): Promise<SonarAnalysisState | undefined> {
+  const resolvedTarget = await resolveTarget(ctx, targetInput);
+  const apiState = await loadProjectIssuesFromApi(ctx, targetInput);
+  if (apiState) return apiState;
+  return statesByBaseDir.get(resolvedTarget.baseDir);
+}
+
 // ── Analysis orchestration ────────────────────────────────────────────────────
 
 async function analyzeProject(
@@ -958,8 +969,7 @@ export default function sonarqube(pi: ExtensionAPI) {
         };
       }
 
-      const resolvedTarget = await resolveTarget(ctx, params.path);
-      const targetState = statesByBaseDir.get(resolvedTarget.baseDir) ?? (await loadProjectIssuesFromApi(ctx, params.path));
+      const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path);
       if (!targetState) {
         return {
           content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
@@ -1072,8 +1082,7 @@ export default function sonarqube(pi: ExtensionAPI) {
         return;
       }
 
-      const cachedTarget = parsed.targetInput ? statesByBaseDir.get((await resolveTarget(ctx, parsed.targetInput)).baseDir) : latestState;
-      const targetState = cachedTarget ?? (await loadProjectIssuesFromApi(ctx, parsed.targetInput));
+      const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput);
       if (!targetState) {
         if (ctx.hasUI) {
           ctx.ui.notify(
