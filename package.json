@@ -27,7 +27,8 @@
     "pi",
     "extension",
     "sonarqube",
-    "code-quality"
+    "code-quality",
+    "pi-package"
   ],
   "license": "MIT",
   "author": "Jonathan0823",
