@@ -35,7 +35,7 @@
   "author": "Jonathan0823",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Jonathan0823/pi-config.git"
+    "url": "git+https://github.com/Jonathan0823/pi-sonarqube.git"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.6",
