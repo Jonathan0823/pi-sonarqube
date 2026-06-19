@@ -919,7 +919,7 @@ async function fetchIssues(
 
   for (;;) {
     const url = new URL("/api/issues/search", serverUrl);
-    url.searchParams.set("componentKeys", projectKey);
+    url.searchParams.set("projects", projectKey);
     url.searchParams.set("resolved", "false");
     url.searchParams.set("ps", "100");
     url.searchParams.set("p", String(page));
