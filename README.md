@@ -1,4 +1,4 @@
-# @jonathan0823/pi-sonarqube
+# pi-sonarqube
 
 A Pi extension to run local SonarQube analysis and browse the resulting issues — all from within Pi.
 
