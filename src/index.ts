@@ -8,7 +8,7 @@ import type {
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { Type } from "typebox";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ const STATE_TYPE = "sonarqube-analysis-state";
 
 const SonarToolParams = Type.Object({
   action: StringEnum(["analyze", "issues", "open"] as const),
-  path: Type.Optional(Type.String({ description: "Project directory to analyze or inspect" })),
+  path: Type.Optional(Type.String({ description: "Target alias or project directory to analyze or inspect" })),
   issueIndex: Type.Optional(Type.Number({ description: "1-based issue index to open" })),
 });
 
@@ -152,12 +152,103 @@ async function saveProjectConfig(baseDir: string, config: SonarInitConfig): Prom
   await writeFile(projectConfigPath(baseDir), JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
+interface SonarWorkspaceRegistry {
+  version: 1;
+  workspaces: Record<string, string>;
+}
+
+interface ResolvedTarget {
+  baseDir: string;
+  repoRoot: string;
+  alias?: string;
+}
+
+const WORKSPACE_REGISTRY_FILE = "sonarqube.workspaces.json";
+
+function workspaceRegistryPath(repoRoot: string): string {
+  return resolve(repoRoot, CONFIG_DIR_NAME, WORKSPACE_REGISTRY_FILE);
+}
+
+async function hasGitRootMarker(dir: string): Promise<boolean> {
+  try {
+    const entry = await stat(resolve(dir, ".git"));
+    return entry.isDirectory() || entry.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function findRepoRoot(startDir: string): Promise<string> {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (await hasGitRootMarker(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(startDir);
+    dir = parent;
+  }
+}
+
+async function loadWorkspaceRegistry(startDir: string): Promise<{ repoRoot: string; registry: SonarWorkspaceRegistry }> {
+  const repoRoot = await findRepoRoot(startDir);
+  const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(workspaceRegistryPath(repoRoot));
+  const workspaces = raw?.workspaces && typeof raw.workspaces === "object" ? { ...raw.workspaces } : {};
+  return { repoRoot, registry: { version: 1, workspaces: workspaces as Record<string, string> } };
+}
+
+async function saveWorkspaceRegistry(startDir: string, alias: string, targetDir: string): Promise<void> {
+  const { repoRoot, registry } = await loadWorkspaceRegistry(startDir);
+  registry.workspaces[alias] = relative(repoRoot, targetDir) || ".";
+  await mkdir(sonarqubeConfigDir(repoRoot), { recursive: true });
+  await writeFile(workspaceRegistryPath(repoRoot), JSON.stringify(registry, null, 2) + "\n", "utf8");
+}
+
+function looksLikePath(token: string): boolean {
+  return (
+    token === "." ||
+    token === ".." ||
+    token.startsWith("./") ||
+    token.startsWith("../") ||
+    token.startsWith("/") ||
+    token.startsWith("~") ||
+    token.includes("/") ||
+    token.includes("\\")
+  );
+}
+
+async function resolveTarget(ctx: ExtensionContext, targetInput?: string): Promise<ResolvedTarget> {
+  const { repoRoot, registry } = await loadWorkspaceRegistry(ctx.cwd);
+  if (!targetInput) {
+    return { baseDir: ctx.cwd, repoRoot };
+  }
+
+  const aliasTarget = registry.workspaces[targetInput];
+  if (aliasTarget) {
+    return { baseDir: resolve(repoRoot, aliasTarget), repoRoot, alias: targetInput };
+  }
+
+  return { baseDir: normalizePath(targetInput, ctx.cwd), repoRoot };
+}
+
+async function resolveInitTarget(
+  ctx: ExtensionContext,
+  alias?: string,
+  targetInput?: string,
+): Promise<ResolvedTarget> {
+  if (targetInput) {
+    const resolved = await resolveTarget(ctx, targetInput);
+    return { ...resolved, alias };
+  }
+
+  const { repoRoot } = await loadWorkspaceRegistry(ctx.cwd);
+  return { baseDir: ctx.cwd, repoRoot, alias };
+}
+
 export { projectConfigPath, loadProjectConfig, saveProjectConfig, sonarqubeConfigDir };
 
 // ── Config resolution (env > .pi/sonarqube.json > sonar-project.properties) ────
 
 async function resolveConfig(ctx: ExtensionContext, inputPath?: string): Promise<SonarProjectConfig> {
-  const baseDir = inputPath ? normalizePath(inputPath, ctx.cwd) : ctx.cwd;
+  const { baseDir } = await resolveTarget(ctx, inputPath);
   const propertiesPath = resolve(baseDir, "sonar-project.properties");
   const propertiesText = await readOptionalText(propertiesPath);
   const props = propertiesText ? parseProperties(propertiesText) : {};
@@ -382,11 +473,17 @@ class IssueBrowser {
 
 // ── State restoration ─────────────────────────────────────────────────────────
 
-async function restoreState(pi: ExtensionAPI, ctx: ExtensionContext): Promise<SonarAnalysisState | undefined> {
+async function restoreState(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  statesByBaseDir: Map<string, SonarAnalysisState>,
+): Promise<SonarAnalysisState | undefined> {
+  statesByBaseDir.clear();
   let latest: SonarAnalysisState | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
     if (entry.type === "custom" && entry.customType === STATE_TYPE && entry.data) {
       latest = entry.data as SonarAnalysisState;
+      statesByBaseDir.set(latest.baseDir, latest);
     }
   }
 
@@ -656,13 +753,19 @@ async function openIssuePreview(
 
 // ── Init command ──────────────────────────────────────────────────────────────
 
-async function initCommandHandler(ctx: ExtensionCommandContext): Promise<void> {
-  const existing = await loadProjectConfig(ctx.cwd);
+interface InitCommandOptions {
+  alias?: string;
+  targetInput?: string;
+}
+
+async function initCommandHandler(ctx: ExtensionCommandContext, options: InitCommandOptions = {}): Promise<void> {
+  const { baseDir, repoRoot } = await resolveInitTarget(ctx, options.alias, options.targetInput);
+  const existing = await loadProjectConfig(baseDir);
 
   if (existing) {
     const ok = await ctx.ui.confirm(
       "Overwrite?",
-      `Project SonarQube config already exists:\n  Server: ${existing.serverUrl}\n  Project: ${existing.projectKey}\n\nOverwrite?`,
+      `SonarQube config already exists at ${baseDir}:\n  Server: ${existing.serverUrl}\n  Project: ${existing.projectKey}\n\nOverwrite?`,
     );
     if (!ok) {
       if (ctx.hasUI) ctx.ui.notify("Init cancelled.", "info");
@@ -674,24 +777,27 @@ async function initCommandHandler(ctx: ExtensionCommandContext): Promise<void> {
   if (serverUrlInput === undefined) return;
   const serverUrl = normalizeServerUrl(serverUrlInput || existing?.serverUrl || "http://localhost:9000");
 
-  const projectKeyInput = await ctx.ui.input("SonarQube project key", existing?.projectKey ?? basename(ctx.cwd));
+  const projectKeyInput = await ctx.ui.input("SonarQube project key", existing?.projectKey ?? basename(baseDir));
   if (projectKeyInput === undefined) return;
-  const projectKey = projectKeyInput || existing?.projectKey || slugify(basename(ctx.cwd));
+  const projectKey = projectKeyInput || existing?.projectKey || slugify(basename(baseDir));
 
   const tokenInput = await ctx.ui.input("SonarQube token (optional, press Enter to skip)", existing?.token ?? "");
   if (tokenInput === undefined) return;
   const token = tokenInput.trim() || undefined;
 
-  const initConfig: SonarInitConfig = {
+  await saveProjectConfig(baseDir, {
     serverUrl,
     projectKey,
     token,
-  };
+  });
 
-  await saveProjectConfig(ctx.cwd, initConfig);
+  if (options.alias) {
+    await saveWorkspaceRegistry(repoRoot, options.alias, baseDir);
+  }
 
   if (ctx.hasUI) {
-    ctx.ui.notify(`SonarQube config saved to ${projectConfigPath(ctx.cwd)}`, "info");
+    const targetLabel = options.alias ? ` (${options.alias})` : "";
+    ctx.ui.notify(`SonarQube config saved${targetLabel} to ${projectConfigPath(baseDir)}`, "info");
   }
 }
 
@@ -699,52 +805,76 @@ function helpText(): string {
   return [
     "SonarQube commands:",
     "",
-    "  /sonarqube init       configure server URL, project key, and token",
-    "  /sonarqube analyze    run analysis and browse issues",
-    "  /sonarqube issues     browse the latest issue list",
-    "  /sonarqube open <n>   preview source at issue #n",
-    "  /sonarqube            show this help",
+    "  /sonarqube init [alias] [path]   configure target and optional alias",
+    "  /sonarqube analyze [target]      run analysis for alias or path",
+    "  /sonarqube issues [target]       browse latest issues for target",
+    "  /sonarqube open [target] <n>     preview issue #n for target",
+    "  /sonarqube                       show this help",
     "",
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
+    "  monorepo aliases live in .pi/sonarqube.workspaces.json",
   ].join("\n");
 }
 
 // ── Command arg parsing ───────────────────────────────────────────────────────
 
-function parseCommandArgs(args: string): {
-  action: "help" | "init" | "analyze" | "issues" | "open";
-  path?: string;
-  issueIndex?: number;
-} {
+type ParsedSonarCommand =
+  | { action: "help" }
+  | { action: "init"; alias?: string; targetInput?: string }
+  | { action: "analyze"; targetInput?: string }
+  | { action: "issues"; targetInput?: string }
+  | { action: "open"; targetInput?: string; issueIndex?: number };
+
+function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return { action: "help" };
 
   const head = tokens[0].toLowerCase();
   if (head === "init") {
-    return { action: "init" };
+    if (tokens.length === 1) return { action: "init" };
+    if (tokens.length === 2) {
+      return looksLikePath(tokens[1])
+        ? { action: "init", targetInput: tokens[1] }
+        : { action: "init", alias: tokens[1] };
+    }
+    return { action: "init", alias: tokens[1], targetInput: tokens[2] };
   }
   if (head === "issues" || head === "view") {
-    return { action: "issues" };
+    return { action: "issues", targetInput: tokens[1] };
   }
   if (head === "open") {
-    const maybeIndex = Number(tokens[1]);
-    return { action: "open", issueIndex: Number.isFinite(maybeIndex) ? maybeIndex : undefined };
+    if (tokens.length === 2 && /^\d+$/.test(tokens[1])) {
+      return { action: "open", issueIndex: Number(tokens[1]) };
+    }
+    const targetInput = tokens[1];
+    const maybeIndex = tokens[2];
+    return {
+      action: "open",
+      targetInput,
+      issueIndex: maybeIndex && /^\d+$/.test(maybeIndex) ? Number(maybeIndex) : undefined,
+    };
   }
   if (head === "analyze" || head === "run") {
-    return { action: "analyze", path: tokens[1] };
+    return { action: "analyze", targetInput: tokens[1] };
   }
 
-  return { action: "analyze", path: tokens[0] };
+  return { action: "analyze", targetInput: tokens[0] };
 }
 
 // ── Extension entrypoint ──────────────────────────────────────────────────────
 
 export default function sonarqube(pi: ExtensionAPI) {
+  const statesByBaseDir = new Map<string, SonarAnalysisState>();
   let latestState: SonarAnalysisState | undefined;
 
+  const rememberState = (state: SonarAnalysisState) => {
+    statesByBaseDir.set(state.baseDir, state);
+    latestState = state;
+  };
+
   const restore = async (ctx: ExtensionContext) => {
-    latestState = await restoreState(pi, ctx);
+    latestState = await restoreState(pi, ctx, statesByBaseDir);
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -767,30 +897,31 @@ export default function sonarqube(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (params.action === "analyze") {
         const state = await analyzeProject(pi, ctx, params.path);
-        latestState = state;
-        const report = formatReport(state);
+        rememberState(state);
         return {
-          content: [{ type: "text", text: report }],
+          content: [{ type: "text", text: formatReport(state) }],
           details: state,
         };
       }
 
-      if (!latestState) {
+      const target = await resolveTarget(ctx, params.path);
+      const targetState = statesByBaseDir.get(target.baseDir);
+      if (!targetState) {
         return {
-          content: [{ type: "text", text: "No SonarQube analysis has been run in this session yet." }],
-          details: { error: "No SonarQube analysis has been run in this session yet." },
+          content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
+          details: { error: "No SonarQube analysis has been run for this target yet." },
         };
       }
 
       if (params.action === "issues") {
         return {
-          content: [{ type: "text", text: formatReport(latestState) }],
-          details: latestState,
+          content: [{ type: "text", text: formatReport(targetState) }],
+          details: targetState,
         };
       }
 
       const index = params.issueIndex ?? 1;
-      const issue = latestState.issues[index - 1];
+      const issue = targetState.issues[index - 1];
       if (!issue) {
         return {
           content: [{ type: "text", text: `Issue #${index} was not found.` }],
@@ -798,10 +929,10 @@ export default function sonarqube(pi: ExtensionAPI) {
         };
       }
 
-      const preview = await buildIssuePreview(latestState.baseDir, issue);
+      const preview = await buildIssuePreview(targetState.baseDir, issue);
       return {
         content: [{ type: "text", text: `${formatIssue(issue, index)}\n\n${preview}` }],
-        details: { ...latestState, selectedIssue: issue },
+        details: { ...targetState, selectedIssue: issue },
       };
     },
 
@@ -860,12 +991,6 @@ export default function sonarqube(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const parsed = parseCommandArgs(args);
 
-      // --- Init ---
-      if (parsed.action === "init") {
-        await initCommandHandler(ctx);
-        return;
-      }
-
       // --- Help ---
       if (parsed.action === "help") {
         if (ctx.hasUI) {
@@ -874,42 +999,51 @@ export default function sonarqube(pi: ExtensionAPI) {
         return;
       }
 
+      // --- Init ---
+      if (parsed.action === "init") {
+        await initCommandHandler(ctx, { alias: parsed.alias, targetInput: parsed.targetInput });
+        return;
+      }
+
+      // --- Analyze ---
       if (parsed.action === "analyze") {
-        const state = await analyzeProject(pi, ctx, parsed.path);
-        latestState = state;
+        const state = await analyzeProject(pi, ctx, parsed.targetInput);
+        rememberState(state);
         if (ctx.hasUI) {
           ctx.ui.notify(`${formatSummary(state)}. Use /sonarqube issues to browse.`, state.issues.length === 0 ? "info" : "warning");
         }
         return;
       }
 
-      if (!latestState) {
-        if (ctx.hasUI) ctx.ui.notify("No SonarQube analysis has been run in this session yet.", "warning");
+      const target = await resolveTarget(ctx, parsed.targetInput);
+      const targetState = statesByBaseDir.get(target.baseDir);
+      if (!targetState) {
+        if (ctx.hasUI) ctx.ui.notify("No SonarQube analysis has been run for this target yet.", "warning");
         return;
       }
 
       // --- Issues ---
       if (parsed.action === "issues") {
-        if (latestState.issues.length === 0) {
-          if (ctx.hasUI) ctx.ui.notify(formatSummary(latestState), "info");
+        if (targetState.issues.length === 0) {
+          if (ctx.hasUI) ctx.ui.notify(formatSummary(targetState), "info");
           return;
         }
-        const choice = await showIssueBrowser(ctx, latestState);
+        const choice = await showIssueBrowser(ctx, targetState);
         if (choice !== null && choice !== undefined) {
-          const issue = latestState.issues[choice];
-          if (issue) await openIssuePreview(ctx, latestState, issue);
+          const issue = targetState.issues[choice];
+          if (issue) await openIssuePreview(ctx, targetState, issue);
         }
         return;
       }
 
       // --- Open ---
       const index = parsed.issueIndex ?? 1;
-      const issue = latestState.issues[index - 1];
+      const issue = targetState.issues[index - 1];
       if (!issue) {
         if (ctx.hasUI) ctx.ui.notify(`Issue #${index} was not found.`, "error");
         return;
       }
-      await openIssuePreview(ctx, latestState, issue);
+      await openIssuePreview(ctx, targetState, issue);
     },
   });
 }
