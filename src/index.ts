@@ -279,13 +279,7 @@ function formatReport(state: SonarAnalysisState): string {
   return lines.join("\n");
 }
 
-function issueWidgetLines(state: SonarAnalysisState): string[] {
-  const lines = [formatSummary(state), `Last run: ${state.analyzedAt}`];
-  if (state.issues.length > 0) {
-    lines.push("Use /sonarqube issues to browse.");
-  }
-  return lines;
-}
+
 
 function severityColor(theme: Theme, severity: string): string {
   switch (severity.toLowerCase()) {
@@ -398,7 +392,6 @@ async function restoreState(pi: ExtensionAPI, ctx: ExtensionContext): Promise<So
 
   if (latest) {
     ctx.ui.setStatus("sonarqube", formatSummary(latest));
-    ctx.ui.setWidget("sonarqube-latest", issueWidgetLines(latest), { placement: "belowEditor" });
   }
 
   return latest;
@@ -592,8 +585,12 @@ async function analyzeProject(
     throw new Error(`Project directory not found: ${config.baseDir}`);
   }
 
-  ctx.ui.setWorkingMessage(`Running SonarQube analysis for ${config.projectKey}...`);
-  ctx.ui.setStatus("sonarqube", `Analyzing ${config.projectKey}...`);
+  ctx.ui.setWorkingMessage(`Running SonarQube analysis for ${config.projectKey}`);
+  ctx.ui.setWorkingIndicator({
+    frames: [".", "..", "...", ".."],
+    intervalMs: 180,
+  });
+  ctx.ui.setStatus("sonarqube", `Analyzing ${config.projectKey}`);
 
   try {
     await runScanner(pi, config, ctx.signal);
@@ -620,13 +617,13 @@ async function analyzeProject(
 
     pi.appendEntry(STATE_TYPE, state);
     ctx.ui.setStatus("sonarqube", formatSummary(state));
-    ctx.ui.setWidget("sonarqube-latest", issueWidgetLines(state), { placement: "belowEditor" });
     return state;
   } catch (error) {
     ctx.ui.setStatus("sonarqube", undefined);
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
     ctx.ui.setWorkingMessage();
+    ctx.ui.setWorkingIndicator();
   }
 }
 
