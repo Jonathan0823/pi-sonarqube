@@ -663,6 +663,45 @@ function severityColor(theme: Theme, severity: string): string {
   }
 }
 
+const ANALYSIS_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const ANALYSIS_WIDGET_KEY = "sonarqube-analysis";
+
+interface AnalysisUiHandle {
+  setPhase(phase: string): void;
+  stop(): void;
+}
+
+function startAnalysisUi(ctx: ExtensionContext, projectKey: string): AnalysisUiHandle {
+  let frameIndex = 0;
+  let phase = "Starting...";
+  const render = () => {
+    const frame = ANALYSIS_SPINNER[frameIndex];
+    ctx.ui.setWidget(ANALYSIS_WIDGET_KEY, [`${frame} SonarQube ${projectKey}`, phase]);
+  };
+
+  ctx.ui.setWorkingMessage(`Analyzing ${projectKey}...`);
+  ctx.ui.setWorkingIndicator({ frames: ANALYSIS_SPINNER as unknown as string[], intervalMs: 80 });
+  render();
+
+  const timer = setInterval(() => {
+    frameIndex = (frameIndex + 1) % ANALYSIS_SPINNER.length;
+    render();
+  }, 80);
+
+  return {
+    setPhase(nextPhase: string) {
+      phase = nextPhase;
+      render();
+    },
+    stop() {
+      clearInterval(timer);
+      ctx.ui.setWidget(ANALYSIS_WIDGET_KEY, undefined);
+      ctx.ui.setWorkingMessage();
+      ctx.ui.setWorkingIndicator();
+    },
+  };
+}
+
 // ── Issue Browser UI component ────────────────────────────────────────────────
 
 class IssueBrowser {
@@ -772,10 +811,7 @@ async function restoreState(
     }
   }
 
-  if (latest) {
-    ctx.ui.setStatus("sonarqube", formatSummary(latest));
-  }
-
+  ctx.ui.setStatus("sonarqube", undefined);
   return latest;
 }
 
@@ -1056,21 +1092,21 @@ async function analyzeProject(
     throw new Error(`Project directory not found: ${config.baseDir}`);
   }
 
-  ctx.ui.setWorkingMessage(`Running SonarQube analysis for ${config.projectKey}`);
-  ctx.ui.setWorkingIndicator({
-    frames: [".", "..", "...", ".."],
-    intervalMs: 180,
-  });
-  ctx.ui.setStatus("sonarqube", `Analyzing ${config.projectKey}`);
+  const analysisUi = startAnalysisUi(ctx, config.projectKey);
 
   try {
+    analysisUi.setPhase("Running sonar-scanner...");
     await runScanner(pi, config, ctx.signal);
+
+    analysisUi.setPhase("Reading scanner report...");
     const report = await readReportTask(config.baseDir);
     const ceTaskUrl = report["ceTaskUrl"];
     const dashboardUrl = report["dashboardUrl"];
     const analysisId = ceTaskUrl
-      ? await waitForAnalysis(config.serverUrl, config.token, ceTaskUrl, ctx.signal)
+      ? (analysisUi.setPhase("Waiting for SonarQube analysis..."), await waitForAnalysis(config.serverUrl, config.token, ceTaskUrl, ctx.signal))
       : undefined;
+
+    analysisUi.setPhase("Fetching issues...");
     const normalizedFilters = normalizeIssueFilters(filters);
     const issues = await fetchIssues(config.serverUrl, config.token, config.projectKey, ctx.signal, normalizedFilters);
 
@@ -1082,14 +1118,11 @@ async function analyzeProject(
     });
 
     pi.appendEntry(STATE_TYPE, state);
-    ctx.ui.setStatus("sonarqube", formatSummary(state));
     return state;
   } catch (error) {
-    ctx.ui.setStatus("sonarqube", undefined);
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
-    ctx.ui.setWorkingMessage();
-    ctx.ui.setWorkingIndicator();
+    analysisUi.stop();
   }
 }
 
@@ -1112,7 +1145,6 @@ async function openIssuePreview(
 ): Promise<void> {
   const preview = await buildIssuePreview(state.baseDir, issue);
   const title = `${issue.filePath}${issue.line ? `:${issue.line}` : ""}`;
-  ctx.ui.setStatus("sonarqube", title);
   if (ctx.mode === "tui") {
     await ctx.ui.editor(title, preview);
     return;
