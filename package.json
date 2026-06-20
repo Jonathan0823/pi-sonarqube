@@ -1,6 +1,6 @@
 {
   "name": "@jonathan0823/pi-sonarqube",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SonarQube extension for Pi — run local analysis and browse issues.",
   "type": "module",
   "main": "dist/index.js",
