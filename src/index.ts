@@ -420,7 +420,7 @@ function looksLikePath(token: string): boolean {
 }
 
 function knownTargets(registry: SonarWorkspaceRegistry): string[] {
-  return Object.keys(registry.workspaces).sort();
+  return Object.keys(registry.workspaces).sort((left, right) => left.localeCompare(right));
 }
 
 async function resolveTarget(ctx: ExtensionContext, targetInput?: string): Promise<ResolvedTarget> {
@@ -908,8 +908,22 @@ async function restoreState(
 
 // ── Error hints ───────────────────────────────────────────────────────────────
 
-function extractScannerHint(output: string, config: SonarProjectConfig): string {
+function sonarScannerInstallHint(): string {
+  return [
+    "SonarScanner is not installed or not on PATH.",
+    "Please install SonarScanner and make sure `sonar-scanner` is available, then retry.",
+  ].join(" ");
+}
+
+function extractScannerHint(output: string, config: SonarProjectConfig, exitCode?: number): string {
   const lines = output.toLowerCase();
+
+  if (
+    exitCode === 127 ||
+    /spawn .*enoent|enoent|command not found|is not recognized as an internal or external command/i.test(lines)
+  ) {
+    return sonarScannerInstallHint();
+  }
 
   if (/status code 401|status 401|unauthorized/i.test(lines)) {
     const defaultHint = config.serverUrl === "http://localhost:9000"
@@ -951,6 +965,23 @@ function extractScannerHint(output: string, config: SonarProjectConfig): string 
 // ── SonarScanner interaction ─────────────────────────────────────────────────
 
 async function runScanner(pi: ExtensionAPI, config: SonarProjectConfig, signal?: AbortSignal): Promise<string> {
+  const scannerCheck =
+    process.platform === "win32"
+      ? await pi.exec("cmd", ["/d", "/s", "/c", "where", "sonar-scanner"], {
+          cwd: config.baseDir,
+          signal,
+          timeout: 10_000,
+        })
+      : await pi.exec("sh", ["-lc", "command -v sonar-scanner"], {
+          cwd: config.baseDir,
+          signal,
+          timeout: 10_000,
+        });
+
+  if (scannerCheck.code !== 0 || !scannerCheck.stdout.trim()) {
+    throw new Error(sonarScannerInstallHint());
+  }
+
   const args = [
     `-Dsonar.projectKey=${config.projectKey}`,
     `-Dsonar.projectBaseDir=${config.baseDir}`,
@@ -1283,13 +1314,21 @@ async function initCommandHandler(ctx: ExtensionCommandContext, options: InitCom
     token,
   });
 
+  const propertiesState = await ensureDefaultSonarProjectProperties(baseDir);
+
   if (options.alias) {
     await saveWorkspaceRegistry(repoRoot, options.alias, baseDir);
   }
 
   if (ctx.hasUI) {
     const targetLabel = options.alias ? ` (${options.alias})` : "";
-    ctx.ui.notify(`SonarQube config saved${targetLabel} to ${projectConfigPath(baseDir)}`, "info");
+    let propertiesNote = "";
+    if (propertiesState === "created") {
+      propertiesNote = ` and created ${sonarProjectPropertiesPath(baseDir)}`;
+    } else if (propertiesState === "updated") {
+      propertiesNote = ` and merged ${sonarProjectPropertiesPath(baseDir)}`;
+    }
+    ctx.ui.notify(`SonarQube config saved${targetLabel} to ${projectConfigPath(baseDir)}${propertiesNote}`, "info");
   }
 }
 
