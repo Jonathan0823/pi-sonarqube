@@ -248,6 +248,97 @@ function sonarqubeConfigDir(baseDir: string): string {
   return resolve(baseDir, CONFIG_DIR_NAME);
 }
 
+function sonarProjectPropertiesPath(baseDir: string): string {
+  return resolve(baseDir, "sonar-project.properties");
+}
+
+const DEFAULT_SONAR_EXCLUSIONS = [
+  "**/node_modules/**",
+  "dist/**",
+  "coverage/**",
+  ".scannerwork/**",
+  "**/.env*",
+];
+
+const DEFAULT_SONAR_PROJECT_PROPERTIES = [
+  "sonar.sources=.",
+  `sonar.exclusions=${DEFAULT_SONAR_EXCLUSIONS.join(",")}`,
+].join("\n") + "\n";
+
+function mergeCommaSeparatedValues(existingValue: string | undefined, additions: string[]): string {
+  const merged = new Set(
+    (existingValue ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  for (const addition of additions) {
+    const trimmed = addition.trim();
+    if (trimmed) merged.add(trimmed);
+  }
+
+  return [...merged].join(",");
+}
+
+async function ensureDefaultSonarProjectProperties(baseDir: string): Promise<"created" | "updated" | "unchanged"> {
+  const path = sonarProjectPropertiesPath(baseDir);
+  const existing = await readOptionalText(path);
+  if (!existing?.trim()) {
+    await writeFile(path, DEFAULT_SONAR_PROJECT_PROPERTIES, "utf8");
+    return "created";
+  }
+
+  const lines = existing.split(/\r?\n/);
+  let hasSources = false;
+  let hasExclusions = false;
+  let changed = false;
+
+  const updatedLines = lines.map((line) => {
+    const match = line.match(/^(\s*)(sonar\.(?:sources|exclusions))\s*=\s*(.*)$/);
+    if (!match) return line;
+
+    const indent = match[1] ?? "";
+    const key = match[2];
+    const value = match[3] ?? "";
+
+    if (key === "sonar.sources") {
+      hasSources = true;
+      const trimmedValue = value.trim();
+      if (trimmedValue) return line;
+      changed = true;
+      return `${indent}sonar.sources=.`;
+    }
+
+    if (key === "sonar.exclusions") {
+      hasExclusions = true;
+      const merged = mergeCommaSeparatedValues(value, DEFAULT_SONAR_EXCLUSIONS);
+      if (merged === value.trim()) return line;
+      changed = true;
+      return `${indent}sonar.exclusions=${merged}`;
+    }
+
+    return line;
+  });
+
+  if (!hasSources) {
+    updatedLines.push("sonar.sources=.");
+    changed = true;
+  }
+  if (!hasExclusions) {
+    updatedLines.push(`sonar.exclusions=${DEFAULT_SONAR_EXCLUSIONS.join(",")}`);
+    changed = true;
+  }
+
+  if (!changed) {
+    return "unchanged";
+  }
+
+  const normalized = updatedLines.join("\n").replace(/\n*$/, "\n");
+  await writeFile(path, normalized, "utf8");
+  return existing.includes("sonar.sources") || existing.includes("sonar.exclusions") ? "updated" : "created";
+}
+
 /**
  * Load project-local config from `.pi/sonarqube.json`.
  * Returns undefined when the file doesn't exist or is invalid.
@@ -881,7 +972,7 @@ async function runScanner(pi: ExtensionAPI, config: SonarProjectConfig, signal?:
       .filter(Boolean)
       .join("\n")
       .trim();
-    const hint = extractScannerHint(output, config);
+    const hint = extractScannerHint(output, config, result.code);
     const detail = output ? `\n\n${output.slice(-4000)}` : "";
     const message = hint
       ? `SonarQube scan failed for ${config.projectKey}. ${hint}`
