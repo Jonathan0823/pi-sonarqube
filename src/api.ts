@@ -488,20 +488,4 @@ export async function fetchDuplicationMeasures(
   }
 }
 
-export async function hasProjectAnalyses(
-  serverUrl: string,
-  token: string | undefined,
-  projectKey: string,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  try {
-    const result = await fetchJson<{ analyses?: Array<{ key?: string }> }>(
-      `${serverUrl}/api/project_analyses/search?project=${encodeURIComponent(projectKey)}&ps=1`,
-      token,
-      signal,
-    );
-    return (result.analyses?.length ?? 0) > 0;
-  } catch {
-    return false;
-  }
-}
+

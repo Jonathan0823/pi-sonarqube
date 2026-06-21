@@ -203,16 +203,6 @@ export function formatIssue(issue: SonarIssue, index?: number): string {
   return `${prefix}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
 }
 
-export function formatDuplicationSummary(measures: SonarDuplicationMeasures): string {
-  const density = measures.duplicatedLinesDensity.toFixed(1);
-  return [
-    `  Duplication: ${density}% duplicated lines`,
-    `  Duplicated lines: ${measures.duplicatedLines}`,
-    `  Duplicated blocks: ${measures.duplicatedBlocks}`,
-    `  Duplicated files: ${measures.duplicatedFiles}`,
-  ].join("\n");
-}
-
 export function formatSummary(state: { totalIssues: number; projectKey: string; filters?: SonarIssueFetchOptions }): string {
   const issueCount = state.totalIssues;
   const filterLabel = state.filters ? ` (${issueFilterLabel(state.filters)})` : "";
