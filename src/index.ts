@@ -11,6 +11,7 @@ import type {
   SonarInitConfig,
   InitCommandOptions,
   FileDuplication,
+  SonarProjectConfig,
 } from "./types.js";
 import {
   slugify,
@@ -370,57 +371,8 @@ export default function sonarqube(pi: ExtensionAPI) {
           return { content: [{ type: "text", text: formatReport(state) }], details: state };
         }
 
-        if (params.action === "duplications") {
-          let config;
-          try {
-            config = await resolveConfig(ctx, params.path);
-          } catch {
-            return {
-              content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
-              details: { error: "Project not configured." },
-            };
-          }
-          let files: FileDuplication[];
-          try {
-            files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
-          } catch (error) {
-            const msg = sonarErrorMessage(error);
-            if (msg.includes("403") || msg.includes("Insufficient privileges")) {
-              return {
-                content: [{ type: "text", text: "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init." }],
-                details: { error: "Token missing 'See Source Code' permission." },
-              };
-            }
-            return {
-              content: [{ type: "text", text: msg }],
-              details: { error: msg },
-            };
-          }
-          if (files.length === 0) {
-            return {
-              content: [{ type: "text", text: `No duplications found for ${config.projectKey}.` }],
-              details: { error: `No duplications found for ${config.projectKey}.` },
-            };
-          }
-          const text = formatDuplicationsList(files);
-          return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, files } };
-        }
-
-        if (params.action === "metrics") {
-          const config = await resolveConfig(ctx, params.path);
-          const [measures, issueCounts] = await Promise.all([
-            fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
-            fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
-          ]);
-          if (!measures && !issueCounts) {
-            return {
-              content: [{ type: "text", text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` }],
-              details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
-            };
-          }
-          const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
-          return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts } };
-        }
+        if (params.action === "duplications") return toolDuplications(ctx, params.path);
+        if (params.action === "metrics") return toolMetrics(ctx, params.path);
 
         const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path, filters);
         if (!targetState) {
@@ -615,24 +567,38 @@ async function commandDuplications(
     return;
   }
 
-  // Direct file index provided → show detail
   if (fileIndex !== undefined) {
-    const file = files[fileIndex - 1];
-    if (!file) {
-      if (ctx.hasUI) ctx.ui.notify(`File #${fileIndex} not found.`, "error");
-      return;
-    }
-    const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-    const text = formatDuplicationBlockDetail(file.filePath, groups);
-    if (ctx.mode === "tui") {
-      await ctx.ui.editor(`Duplications in ${file.filePath}`, text);
-    } else if (ctx.hasUI) {
-      ctx.ui.notify(text, "info");
-    }
+    await showDuplicationDrillDown(ctx, config, files, fileIndex);
     return;
   }
+  await showDuplicationListOrBrowser(ctx, config, files);
+}
 
-  // No index → show browser
+async function showDuplicationDrillDown(
+  ctx: ExtensionCommandContext,
+  config: SonarProjectConfig,
+  files: FileDuplication[],
+  fileIndex: number,
+): Promise<void> {
+  const file = files[fileIndex - 1];
+  if (!file) {
+    if (ctx.hasUI) ctx.ui.notify(`File #${fileIndex} not found.`, "error");
+    return;
+  }
+  const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
+  const text = formatDuplicationBlockDetail(file.filePath, groups);
+  if (ctx.mode === "tui") {
+    await ctx.ui.editor(`Duplications in ${file.filePath}`, text);
+  } else if (ctx.hasUI) {
+    ctx.ui.notify(text, "info");
+  }
+}
+
+async function showDuplicationListOrBrowser(
+  ctx: ExtensionCommandContext,
+  config: SonarProjectConfig,
+  files: FileDuplication[],
+): Promise<void> {
   if (ctx.mode !== "tui") {
     ctx.ui.notify(formatDuplicationsList(files), "info");
     return;
@@ -691,6 +657,68 @@ async function commandShowIssues(
     const issue = targetState.issues[choice];
     if (issue) await openIssuePreview(ctx, targetState, issue);
   }
+}
+
+// ── Tool helper functions ────────────────────────────────────────────────────
+
+async function toolDuplications(ctx: any, path: string | undefined): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+  let config;
+  try {
+    config = await resolveConfig(ctx, path);
+  } catch {
+    return {
+      content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
+      details: { error: "Project not configured." },
+    };
+  }
+  let files: FileDuplication[];
+  try {
+    files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
+  } catch (error) {
+    const msg = sonarErrorMessage(error);
+    if (msg.includes("403") || msg.includes("Insufficient privileges")) {
+      return {
+        content: [{ type: "text", text: "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init." }],
+        details: { error: "Token missing 'See Source Code' permission." },
+      };
+    }
+    return {
+      content: [{ type: "text", text: msg }],
+      details: { error: msg },
+    };
+  }
+  if (files.length === 0) {
+    return {
+      content: [{ type: "text", text: `No duplications found for ${config.projectKey}.` }],
+      details: { error: `No duplications found for ${config.projectKey}.` },
+    };
+  }
+  const text = formatDuplicationsList(files);
+  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, files } };
+}
+
+async function toolMetrics(ctx: any, path: string | undefined): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+  let config;
+  try {
+    config = await resolveConfig(ctx, path);
+  } catch {
+    return {
+      content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
+      details: { error: "Project not configured." },
+    };
+  }
+  const [measures, issueCounts] = await Promise.all([
+    fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+  ]);
+  if (!measures && !issueCounts) {
+    return {
+      content: [{ type: "text", text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` }],
+      details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
+    };
+  }
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
+  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts } };
 }
 
 // ── Re-exports for public API ───────────────────────────────────────────────

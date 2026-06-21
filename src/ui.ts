@@ -221,7 +221,7 @@ export class DuplicationBrowser {
     private readonly done: (result: number | null) => void,
   ) {}
 
-  invalidate(): void {}
+  invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
@@ -259,7 +259,8 @@ export class DuplicationBrowser {
       const index = start + offset;
       const isSelected = index === this.selected;
       const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
-      const line = `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`)}`;
+      const detail = `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
+      const line = `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", detail)}`;
       lines.push(truncateToWidth(line, width));
     }
 
