@@ -28,6 +28,23 @@ export interface IssueSeverityCounts {
   info: number;
 }
 
+export interface FileDuplication {
+  filePath: string;
+  fileKey: string;
+  duplicatedLines: number;
+  duplicatedBlocks: number;
+}
+
+export interface DuplicationBlock {
+  from: number;
+  size: number;
+  filePath: string;
+}
+
+export interface DuplicationBlockGroup {
+  blocks: DuplicationBlock[];
+}
+
 export interface SonarAnalysisState {
   version: 1;
   analyzedAt: string;

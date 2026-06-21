@@ -10,6 +10,7 @@ import type {
   SonarIssueFetchOptions,
   SonarInitConfig,
   InitCommandOptions,
+  FileDuplication,
 } from "./types.js";
 import {
   slugify,
@@ -31,6 +32,8 @@ import {
   fetchIssues,
   fetchDuplicationMeasures,
   fetchIssueSeverityCounts,
+  fetchFileDuplications,
+  fetchFileDuplicationBlocks,
   createAnalysisState,
   issueFilterLabel,
 } from "./api.js";
@@ -43,6 +46,8 @@ import {
   formatIssue,
   formatSummary,
   formatMetricsOutput,
+  formatDuplicationsList,
+  formatDuplicationBlockDetail,
   formatReport,
   helpText,
   targetLabel,
@@ -55,10 +60,11 @@ import {
   buildIssuePreview,
   openIssuePreview,
   resolveTargetState,
+  showDuplicationBrowser,
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum(["analyze", "issues", "open", "metrics"] as const),
+  action: StringEnum(["analyze", "issues", "open", "metrics", "duplications"] as const),
   path: Type.Optional(Type.String({ description: "Target alias or project directory to analyze or inspect" })),
   issueIndex: Type.Optional(Type.Number({ description: "1-based issue index to open" })),
   severities: Type.Optional(
@@ -364,6 +370,42 @@ export default function sonarqube(pi: ExtensionAPI) {
           return { content: [{ type: "text", text: formatReport(state) }], details: state };
         }
 
+        if (params.action === "duplications") {
+          let config;
+          try {
+            config = await resolveConfig(ctx, params.path);
+          } catch {
+            return {
+              content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
+              details: { error: "Project not configured." },
+            };
+          }
+          let files: FileDuplication[];
+          try {
+            files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
+          } catch (error) {
+            const msg = sonarErrorMessage(error);
+            if (msg.includes("403") || msg.includes("Insufficient privileges")) {
+              return {
+                content: [{ type: "text", text: "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init." }],
+                details: { error: "Token missing 'See Source Code' permission." },
+              };
+            }
+            return {
+              content: [{ type: "text", text: msg }],
+              details: { error: msg },
+            };
+          }
+          if (files.length === 0) {
+            return {
+              content: [{ type: "text", text: `No duplications found for ${config.projectKey}.` }],
+              details: { error: `No duplications found for ${config.projectKey}.` },
+            };
+          }
+          const text = formatDuplicationsList(files);
+          return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, files } };
+        }
+
         if (params.action === "metrics") {
           const config = await resolveConfig(ctx, params.path);
           const [measures, issueCounts] = await Promise.all([
@@ -481,6 +523,9 @@ export default function sonarqube(pi: ExtensionAPI) {
           case "metrics":
             await commandMetrics(ctx, parsed.targetInput);
             return;
+          case "duplications":
+            await commandDuplications(pi, ctx, parsed.targetInput, parsed.issueIndex);
+            return;
           default:
             await commandIssuesOrOpen(pi, ctx, statesByBaseDir, parsed, rememberState);
         }
@@ -532,6 +577,71 @@ async function commandMetrics(
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
   }
+}
+
+async function commandDuplications(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  targetInput?: string,
+  fileIndex?: number,
+): Promise<void> {
+  const config = await resolveConfig(ctx, targetInput);
+  let files: FileDuplication[];
+  try {
+    files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
+  } catch (error) {
+    const msg = sonarErrorMessage(error);
+    if (msg.includes("403") || msg.includes("Insufficient privileges")) {
+      if (ctx.hasUI) {
+        ctx.ui.notify("SonarQube token needs 'See Source Code' permission to list duplicated files. Update the token permissions in SonarQube and run /sonarqube init to update the token.", "warning");
+      }
+      return;
+    }
+    throw error;
+  }
+  if (files.length === 0) {
+    // Fallback: check project-level metrics for confirmation
+    const projectMeasures = await fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal).catch(() => undefined);
+    if (projectMeasures && projectMeasures.duplicatedFiles > 0) {
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          `Cannot list individual files — your SonarQube token lacks "See Source Code" permission. Grant it in SonarQube project permissions, then run /sonarqube init to update the token.`,
+          "warning",
+        );
+      }
+    } else if (ctx.hasUI) {
+      ctx.ui.notify("No duplications found.", "info");
+    }
+    return;
+  }
+
+  // Direct file index provided → show detail
+  if (fileIndex !== undefined) {
+    const file = files[fileIndex - 1];
+    if (!file) {
+      if (ctx.hasUI) ctx.ui.notify(`File #${fileIndex} not found.`, "error");
+      return;
+    }
+    const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
+    const text = formatDuplicationBlockDetail(file.filePath, groups);
+    if (ctx.mode === "tui") {
+      await ctx.ui.editor(`Duplications in ${file.filePath}`, text);
+    } else if (ctx.hasUI) {
+      ctx.ui.notify(text, "info");
+    }
+    return;
+  }
+
+  // No index → show browser
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(formatDuplicationsList(files), "info");
+    return;
+  }
+  const choice = await showDuplicationBrowser(ctx, files);
+  if (choice == null) return;
+  const file = files[choice];
+  const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
+  await ctx.ui.editor(`Duplications in ${file.filePath}`, formatDuplicationBlockDetail(file.filePath, groups));
 }
 
 async function commandIssuesOrOpen(

@@ -1,5 +1,5 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts } from "./types.js";
+import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
@@ -14,6 +14,7 @@ const SONAR_COMMANDS = [
   { value: "open", label: "open", description: "preview a specific issue" },
   { value: "init", label: "init", description: "configure a project target" },
   { value: "metrics", label: "metrics", description: "show project metrics (duplication, issue counts)" },
+  { value: "duplications", label: "duplications", description: "browse duplicated files and blocks" },
 ] as const;
 
 // ── Autocomplete helpers ────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ export function sonarArgumentCompletions(
     return filtered.length > 0 ? filtered : null;
   }
 
-  if (lowerCommand === "init" || lowerCommand === "metrics") {
+  if (lowerCommand === "init" || lowerCommand === "metrics" || lowerCommand === "duplications") {
     return null;
   }
 
@@ -134,7 +135,9 @@ export type ParsedSonarCommand =
   | { action: "analyze"; targetInput?: string; filters?: SonarIssueFetchOptions }
   | { action: "issues"; targetInput?: string; filters?: SonarIssueFetchOptions }
   | { action: "open"; targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions }
-  | { action: "metrics"; targetInput?: string };
+  | { action: "metrics"; targetInput?: string }
+  | { action: "duplications"; targetInput?: string; issueIndex?: number };
+
 
 export function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -162,6 +165,9 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
   if (head === "metrics") {
     return { action: "metrics", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
+  if (head === "duplications") {
+    return { action: "duplications", ...parseSonarIssueArgs(tokens.slice(1), true) };
+  }
 
   return { action: "analyze", ...parseSonarIssueArgs(tokens) };
 }
@@ -177,6 +183,7 @@ export function helpText(): string {
     "  /sonarqube issues [target]       browse issues for a target or path",
     "  /sonarqube open [target] <n>     preview issue #n for a target or path",
     "  /sonarqube metrics [target]      show project metrics (no scanner)",
+    "  /sonarqube duplications [target] browse duplicated files and blocks",
     "  /sonarqube                       show this help",
     "",
     "Filters:",
@@ -236,6 +243,29 @@ export function formatMetricsOutput(metrics: {
     lines.push(`Issues:  ${counts.join("  ")}`);
   }
 
+  return lines.join("\n");
+}
+
+export function formatDuplicationsList(files: FileDuplication[]): string {
+  if (files.length === 0) return "No duplicated files found.";
+  const lines: string[] = [`Duplicated files (${files.length})`];
+  for (const [i, f] of files.entries()) {
+    lines.push(`  ${String(i + 1).padStart(2, " ")}. ${f.filePath}  blocks=${f.duplicatedBlocks}  lines=${f.duplicatedLines}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatDuplicationBlockDetail(filePath: string, groups: DuplicationBlockGroup[]): string {
+  if (groups.length === 0) return `No duplications found in ${filePath}.`;
+  const lines: string[] = [`Duplications in ${filePath}`, ""];
+  for (const [i, group] of groups.entries()) {
+    lines.push(`Block ${i + 1}:`);
+    for (const block of group.blocks) {
+      const end = block.from + block.size - 1;
+      lines.push(`  ${block.filePath}:${block.from}-${end}`);
+    }
+    lines.push("");
+  }
   return lines.join("\n");
 }
 

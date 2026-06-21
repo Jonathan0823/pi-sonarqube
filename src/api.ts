@@ -8,6 +8,8 @@ import type {
   SonarIssueFetchOptions,
   SonarDuplicationMeasures,
   IssueSeverityCounts,
+  FileDuplication,
+  DuplicationBlockGroup,
 } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { parseProperties } from "./config.js";
@@ -516,6 +518,74 @@ export async function fetchIssueSeverityCounts(
   } catch {
     return undefined;
   }
+}
+
+// ── File duplications ─────────────────────────────────────────────────────────
+
+export async function fetchFileDuplications(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<FileDuplication[]> {
+  // Get file keys from issues search facets
+  const facetUrl = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&ps=1&facets=files`;
+  const facetResult = await fetchJson<{
+    facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
+  }>(facetUrl, token, signal);
+
+  const fileFacet = facetResult.facets?.find((f) => f.property === "files");
+  if (!fileFacet?.values?.length) return [];
+
+  // Query per-file duplication measures. CATCH errors per file (404/403 = inaccessible)
+  const results: Array<FileDuplication | null> = await Promise.all(
+    fileFacet.values.map(async (entry) => {
+      try {
+        const fileKey = `${projectKey}:${entry.val}`;
+        const url = `${serverUrl}/api/measures/component?component=${encodeURIComponent(fileKey)}&metricKeys=duplicated_lines,duplicated_blocks`;
+        const res = await fetchJson<{
+          component: { measures?: Array<{ metric: string; value: string }> };
+        }>(url, token, signal);
+        const measures = res.component.measures ?? [];
+        const getValue = (metric: string): number => {
+          const m = measures.find((m) => m.metric === metric);
+          return m ? Number.parseInt(m.value, 10) : 0;
+        };
+        return {
+          filePath: entry.val,
+          fileKey: `${projectKey}:${entry.val}`,
+          duplicatedLines: getValue("duplicated_lines"),
+          duplicatedBlocks: getValue("duplicated_blocks"),
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return results.filter((f): f is FileDuplication => f !== null && f.duplicatedBlocks > 0);
+}
+
+export async function fetchFileDuplicationBlocks(
+  serverUrl: string,
+  token: string | undefined,
+  fileKey: string,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<DuplicationBlockGroup[]> {
+  const url = `${serverUrl}/api/duplications/show?key=${encodeURIComponent(fileKey)}`;
+  const result = await fetchJson<{
+    duplications: Array<{
+      blocks: Array<{ from: number; size: number; component: string }>;
+    }>;
+  }>(url, token, signal);
+  return result.duplications.map((d) => ({
+    blocks: d.blocks.map((b) => ({
+      from: b.from,
+      size: b.size,
+      filePath: toIssuePath(b.component, projectKey),
+    })),
+  }));
 }
 
 

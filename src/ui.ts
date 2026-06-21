@@ -2,7 +2,7 @@ import type { Theme, ExtensionContext, ExtensionCommandContext } from "@earendil
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions } from "./types.js";
+import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions, FileDuplication } from "./types.js";
 import { issueFilterLabel, fetchIssues, createAnalysisState, normalizeIssueFilters } from "./api.js";
 import { resolveConfig, resolveTarget } from "./config.js";
 
@@ -208,6 +208,75 @@ function severityColor(theme: Theme, severity: string): string {
     default:
       return theme.fg("muted", severity);
   }
+}
+
+// ── Duplication browser (used by index.ts) ─────────────────────────────────
+
+export class DuplicationBrowser {
+  private selected = 0;
+
+  constructor(
+    private readonly files: FileDuplication[],
+    private readonly theme: Theme,
+    private readonly done: (result: number | null) => void,
+  ) {}
+
+  invalidate(): void {}
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
+      this.done(null);
+      return;
+    }
+    if (matchesKey(data, Key.up)) {
+      this.selected = Math.max(0, this.selected - 1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.selected = Math.min(this.files.length - 1, this.selected + 1);
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      this.done(this.selected);
+    }
+  }
+
+  render(width: number): string[] {
+    const lines: string[] = [
+      this.theme.fg("accent", this.theme.bold(" SonarQube Duplications ")),
+      this.theme.fg("dim", `${this.files.length} file(s) with duplicate code`),
+      "",
+    ];
+
+    const pageSize = Math.min(15, this.files.length);
+    const halfWindow = Math.floor(pageSize / 2);
+    const maxStart = Math.max(0, this.files.length - pageSize);
+    const start = Math.max(0, Math.min(this.selected - halfWindow, maxStart));
+    const end = Math.min(this.files.length, start + pageSize);
+    const visible = this.files.slice(start, end);
+
+    for (const [offset, file] of visible.entries()) {
+      const index = start + offset;
+      const isSelected = index === this.selected;
+      const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
+      const line = `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`)}`;
+      lines.push(truncateToWidth(line, width));
+    }
+
+    lines.push(
+      "",
+      this.theme.fg("dim", "Up/Down to move, Enter for details, Esc to close"),
+    );
+    return lines;
+  }
+}
+
+export async function showDuplicationBrowser(
+  ctx: ExtensionCommandContext,
+  files: FileDuplication[],
+): Promise<number | null> {
+  if (ctx.mode !== "tui" || files.length === 0) return null;
+  return await ctx.ui.custom<number | null>((_tui, theme, _kb, done) => new DuplicationBrowser(files, theme, done));
 }
 
 // ── Issue browser / preview helpers (used by index.ts) ──────────────────────
