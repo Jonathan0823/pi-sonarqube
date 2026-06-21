@@ -71,8 +71,6 @@ export function startAnalysisUi(ctx: ExtensionContext, projectKey: string): Anal
 
 export class IssueBrowser {
   private selected = 0;
-  private cachedWidth: number | undefined;
-  private cachedLines: string[] | undefined;
 
   constructor(
     private readonly state: SonarAnalysisState,
@@ -80,10 +78,7 @@ export class IssueBrowser {
     private readonly done: (result: number | null) => void,
   ) {}
 
-  invalidate(): void {
-    this.cachedWidth = undefined;
-    this.cachedLines = undefined;
-  }
+  invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
@@ -92,12 +87,10 @@ export class IssueBrowser {
     }
     if (matchesKey(data, Key.up)) {
       this.selected = Math.max(0, this.selected - 1);
-      this.invalidate();
       return;
     }
     if (matchesKey(data, Key.down)) {
       this.selected = Math.min(this.state.issues.length - 1, this.selected + 1);
-      this.invalidate();
       return;
     }
     if (matchesKey(data, Key.enter)) {
@@ -106,10 +99,6 @@ export class IssueBrowser {
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) {
-      return this.cachedLines;
-    }
-
     const lines: string[] = [];
     const title = this.theme.fg("accent", this.theme.bold(" SonarQube Issues "));
     const filterSuffix = this.state.filters ? ` • ${issueFilterLabel(this.state.filters)}` : "";
@@ -131,8 +120,15 @@ export class IssueBrowser {
     const visibleIssues = this.state.issues.slice(start, end);
 
     if (visibleIssues.length === 0) {
-      lines.push(truncateToWidth(this.theme.fg("success", "No open issues found."), width));
-      return finalize(lines, width, this.theme, this.cachedWidth, this.cachedLines);
+      lines.push(
+        truncateToWidth(this.theme.fg("success", "No open issues found."), width),
+        "",
+        truncateToWidth(
+          this.theme.fg("dim", "Up/Down to move, Enter to preview, Esc to close"),
+          width,
+        ),
+      );
+      return lines;
     }
 
     if (start > 0) {
@@ -173,25 +169,8 @@ export class IssueBrowser {
       ),
     );
 
-    this.cachedWidth = width;
-    this.cachedLines = lines;
     return lines;
   }
-}
-
-function finalize(
-  lines: string[],
-  width: number,
-  theme: Theme,
-  cachedWidth: number | undefined,
-  cachedLines: string[] | undefined,
-): string[] {
-  lines.push(
-    "",
-    truncateToWidth(theme.fg("dim", "Up/Down to move, Enter to preview, Esc to close"), width),
-  );
-  const result = cachedLines ?? lines;
-  return result;
 }
 
 // ── Severity colors ─────────────────────────────────────────────────────────

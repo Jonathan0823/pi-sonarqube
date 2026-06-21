@@ -19,10 +19,6 @@ const SONAR_COMMANDS = [
 
 // ── Autocomplete helpers ────────────────────────────────────────────────────
 
-function createAutocompleteItem(value: string, description?: string): AutocompleteItem {
-  return description ? { value, label: value, description } : { value, label: value };
-}
-
 export function filterAutocompleteItems(
   items: readonly { value: string; label: string; description?: string }[],
   prefix: string,
@@ -77,8 +73,8 @@ function createFilterCompletionList(): AutocompleteItem[] {
   const entries: AutocompleteItem[] = [];
   const add = (value: string, desc: string) => {
     entries.push(
-      createAutocompleteItem(`severity:${value}`, desc),
-      createAutocompleteItem(value, desc),
+      { value: `severity:${value}`, label: `severity:${value}`, description: desc },
+      { value, label: value, description: desc },
     );
   };
   for (const value of SONAR_SEVERITIES) add(value, "severity");
@@ -98,16 +94,13 @@ export function sonarArgumentCompletions(
 
   if (!command || commandMatches.length > 1 || !isFullMatch) {
     if (commandMatches.length === 0) return null;
-    return commandMatches.map((item) => createAutocompleteItem(item.value, item.description));
+    return commandMatches.map((item) => ({ value: item.value, label: item.value, description: item.description }));
   }
 
   if (lowerCommand === "open") {
     const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
       const lineSuffix = issue.line ? `:${issue.line}` : "";
-      return createAutocompleteItem(
-        String(index + 1),
-        `${issue.severity} ${issue.filePath}${lineSuffix}`,
-      );
+      return { value: String(index + 1), label: String(index + 1), description: `${issue.severity} ${issue.filePath}${lineSuffix}` };
     });
     const suggestions = [...issueItems, ...createFilterCompletionList()];
     const filtered = filterAutocompleteItems(suggestions, current);

@@ -65,24 +65,6 @@ export function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIs
   return normalized.severities || normalized.statuses || normalized.types || normalized.rules ? normalized : undefined;
 }
 
-export function mergeIssueFilters(
-  ...filters: Array<Partial<SonarIssueFetchOptions> | undefined>
-): SonarIssueFetchOptions | undefined {
-  const merged: SonarIssueFetchOptions = {};
-  for (const filter of filters) {
-    if (!filter) continue;
-    if (filter.severities?.length) merged.severities = [...(merged.severities ?? []), ...filter.severities];
-    if (filter.statuses?.length) merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
-    if (filter.types?.length) merged.types = [...(merged.types ?? []), ...filter.types];
-    if (filter.rules?.length) merged.rules = [...(merged.rules ?? []), ...filter.rules];
-  }
-  return normalizeIssueFilters(merged);
-}
-
-export function splitFilterValues(value: string): string[] {
-  return value.split(",").map((p) => p.trim()).filter(Boolean);
-}
-
 const EXPLICIT_FILTER_RE = /^([^:=]+)[:=](.+)$/;
 
 export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOptions> | undefined {
@@ -92,7 +74,7 @@ export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOpt
   const explicit = EXPLICIT_FILTER_RE.exec(trimmed);
   if (explicit) {
     const key = explicit[1].trim().toLowerCase();
-    const values = splitFilterValues(explicit[2]);
+    const values = explicit[2].split(",").map((p) => p.trim()).filter(Boolean);
     if (values.length === 0) return undefined;
 
     if (key === "severity" || key === "severities") return { severities: values.map((v) => v.toUpperCase()) };
@@ -135,7 +117,21 @@ export function parseSonarIssueArgs(
     }
   }
 
-  return { targetInput, issueIndex, filters: mergeIssueFilters(...filters) };
+  return { targetInput, issueIndex, filters: mergeFilters(...filters) };
+}
+
+function mergeFilters(
+  ...filters: Array<Partial<SonarIssueFetchOptions> | undefined>
+): SonarIssueFetchOptions | undefined {
+  const merged: SonarIssueFetchOptions = {};
+  for (const filter of filters) {
+    if (!filter) continue;
+    if (filter.severities?.length) merged.severities = [...(merged.severities ?? []), ...filter.severities];
+    if (filter.statuses?.length) merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
+    if (filter.types?.length) merged.types = [...(merged.types ?? []), ...filter.types];
+    if (filter.rules?.length) merged.rules = [...(merged.rules ?? []), ...filter.rules];
+  }
+  return normalizeIssueFilters(merged);
 }
 
 export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {

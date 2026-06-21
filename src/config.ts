@@ -292,10 +292,6 @@ export async function resolveInitTarget(
     }
   }
 
-  if (targetInput) {
-    return resolveTarget(ctx, targetInput);
-  }
-
   return { baseDir: ctx.cwd, repoRoot: await findRepoRoot(ctx.cwd) };
 }
 
