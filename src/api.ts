@@ -7,6 +7,7 @@ import type {
   SonarProjectConfig,
   SonarIssueFetchOptions,
   SonarDuplicationMeasures,
+  IssueSeverityCounts,
 } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { parseProperties } from "./config.js";
@@ -482,6 +483,35 @@ export async function fetchDuplicationMeasures(
       duplicatedLines: getValue("duplicated_lines"),
       duplicatedBlocks: getValue("duplicated_blocks"),
       duplicatedFiles: getValue("duplicated_files"),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function fetchIssueSeverityCounts(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<IssueSeverityCounts | undefined> {
+  try {
+    const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=severities`;
+    const result = await fetchJson<{
+      facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
+    }>(url, token, signal);
+    const facet = result.facets?.find((f) => f.property === "severities");
+    if (!facet) return undefined;
+    const getCount = (severity: string): number => {
+      const entry = facet.values.find((v) => v.val === severity);
+      return entry?.count ?? 0;
+    };
+    return {
+      blocker: getCount("BLOCKER"),
+      critical: getCount("CRITICAL"),
+      major: getCount("MAJOR"),
+      minor: getCount("MINOR"),
+      info: getCount("INFO"),
     };
   } catch {
     return undefined;

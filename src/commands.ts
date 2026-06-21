@@ -1,5 +1,5 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures } from "./types.js";
+import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
@@ -13,6 +13,7 @@ const SONAR_COMMANDS = [
   { value: "issues", label: "issues", description: "browse the latest issues" },
   { value: "open", label: "open", description: "preview a specific issue" },
   { value: "init", label: "init", description: "configure a project target" },
+  { value: "metrics", label: "metrics", description: "show project metrics (duplication, issue counts)" },
 ] as const;
 
 // ── Autocomplete helpers ────────────────────────────────────────────────────
@@ -118,7 +119,7 @@ export function sonarArgumentCompletions(
     return filtered.length > 0 ? filtered : null;
   }
 
-  if (lowerCommand === "init") {
+  if (lowerCommand === "init" || lowerCommand === "metrics") {
     return null;
   }
 
@@ -132,7 +133,8 @@ export type ParsedSonarCommand =
   | { action: "init"; alias?: string; targetInput?: string }
   | { action: "analyze"; targetInput?: string; filters?: SonarIssueFetchOptions }
   | { action: "issues"; targetInput?: string; filters?: SonarIssueFetchOptions }
-  | { action: "open"; targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions };
+  | { action: "open"; targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions }
+  | { action: "metrics"; targetInput?: string };
 
 export function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -157,6 +159,9 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
   if (head === "analyze" || head === "run") {
     return { action: "analyze", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
+  if (head === "metrics") {
+    return { action: "metrics", ...parseSonarIssueArgs(tokens.slice(1)) };
+  }
 
   return { action: "analyze", ...parseSonarIssueArgs(tokens) };
 }
@@ -171,6 +176,7 @@ export function helpText(): string {
     "  /sonarqube analyze [target]      run analysis for a target or path",
     "  /sonarqube issues [target]       browse issues for a target or path",
     "  /sonarqube open [target] <n>     preview issue #n for a target or path",
+    "  /sonarqube metrics [target]      show project metrics (no scanner)",
     "  /sonarqube                       show this help",
     "",
     "Filters:",
@@ -201,6 +207,36 @@ export function formatIssue(issue: SonarIssue, index?: number): string {
   const prefix = typeof index === "number" ? `${String(index).padStart(2, "0")}. ` : "";
   const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
   return `${prefix}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
+}
+
+export function formatMetricsOutput(metrics: {
+  projectKey: string;
+  measures?: SonarDuplicationMeasures;
+  issueCounts?: IssueSeverityCounts;
+}): string {
+  const lines: string[] = [`Metrics for ${metrics.projectKey}`];
+
+  if (metrics.measures) {
+    const density = metrics.measures.duplicatedLinesDensity.toFixed(1);
+    lines.push(
+      metrics.measures.duplicatedBlocks > 0
+        ? `Duplication: ${density}%  lines=${metrics.measures.duplicatedLines}  blocks=${metrics.measures.duplicatedBlocks}  files=${metrics.measures.duplicatedFiles}`
+        : `Duplication: ${density}%  (no duplications detected)`,
+    );
+  }
+
+  if (metrics.issueCounts) {
+    const counts = [
+      `BLOCKER ${metrics.issueCounts.blocker}`,
+      `CRITICAL ${metrics.issueCounts.critical}`,
+      `MAJOR ${metrics.issueCounts.major}`,
+      `MINOR ${metrics.issueCounts.minor}`,
+      `INFO ${metrics.issueCounts.info}`,
+    ];
+    lines.push(`Issues:  ${counts.join("  ")}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function formatSummary(state: { totalIssues: number; projectKey: string; filters?: SonarIssueFetchOptions }): string {
@@ -240,7 +276,7 @@ export function formatReport(state: {
   }
 
   if (state.issues.length === 0) {
-    lines.push("No open issues found.");
+    if (!state.measures) lines.push("No open issues found.");
     return lines.join("\n");
   }
 

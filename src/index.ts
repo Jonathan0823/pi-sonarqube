@@ -30,6 +30,7 @@ import {
   normalizeIssueFilters,
   fetchIssues,
   fetchDuplicationMeasures,
+  fetchIssueSeverityCounts,
   createAnalysisState,
   issueFilterLabel,
 } from "./api.js";
@@ -41,6 +42,7 @@ import {
   mergeAutocompleteSuggestions,
   formatIssue,
   formatSummary,
+  formatMetricsOutput,
   formatReport,
   helpText,
   targetLabel,
@@ -56,7 +58,7 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum(["analyze", "issues", "open"] as const),
+  action: StringEnum(["analyze", "issues", "open", "metrics"] as const),
   path: Type.Optional(Type.String({ description: "Target alias or project directory to analyze or inspect" })),
   issueIndex: Type.Optional(Type.Number({ description: "1-based issue index to open" })),
   severities: Type.Optional(
@@ -362,6 +364,22 @@ export default function sonarqube(pi: ExtensionAPI) {
           return { content: [{ type: "text", text: formatReport(state) }], details: state };
         }
 
+        if (params.action === "metrics") {
+          const config = await resolveConfig(ctx, params.path);
+          const [measures, issueCounts] = await Promise.all([
+            fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
+            fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+          ]);
+          if (!measures && !issueCounts) {
+            return {
+              content: [{ type: "text", text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` }],
+              details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
+            };
+          }
+          const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
+          return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts } };
+        }
+
         const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path, filters);
         if (!targetState) {
           return {
@@ -460,6 +478,9 @@ export default function sonarqube(pi: ExtensionAPI) {
             await commandAnalyze(pi, ctx, parsed.targetInput, parsed.filters, rememberState);
             return;
           }
+          case "metrics":
+            await commandMetrics(ctx, parsed.targetInput);
+            return;
           default:
             await commandIssuesOrOpen(pi, ctx, statesByBaseDir, parsed, rememberState);
         }
@@ -489,6 +510,27 @@ async function commandAnalyze(
       `${formatSummary(state)}. Use /sonarqube issues${scope} to browse.`,
       state.issues.length === 0 ? "info" : "warning",
     );
+  }
+}
+
+async function commandMetrics(
+  ctx: ExtensionCommandContext,
+  targetInput?: string,
+): Promise<void> {
+  const config = await resolveConfig(ctx, targetInput);
+  const [measures, issueCounts] = await Promise.all([
+    fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+  ]);
+  if (!measures && !issueCounts) {
+    if (ctx.hasUI) {
+      ctx.ui.notify(`Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`, "warning");
+    }
+    return;
+  }
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
+  if (ctx.hasUI) {
+    ctx.ui.notify(text, "info");
   }
 }
 

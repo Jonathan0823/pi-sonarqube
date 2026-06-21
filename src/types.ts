@@ -20,6 +20,14 @@ export interface SonarDuplicationMeasures {
   duplicatedFiles: number;
 }
 
+export interface IssueSeverityCounts {
+  blocker: number;
+  critical: number;
+  major: number;
+  minor: number;
+  info: number;
+}
+
 export interface SonarAnalysisState {
   version: 1;
   analyzedAt: string;
