@@ -75,7 +75,25 @@ Use **Up/Down** to move, **Enter** to preview the affected source code, and **Es
 
 Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 
-### 4. Open a specific issue
+### 4. View project metrics
+
+```
+/sonarqube metrics
+/sonarqube metrics apps/web
+```
+
+Shows duplication percentage, block/line/file counts, and issue severity breakdown — no scanner needed.
+
+### 5. Browse duplicated files
+
+```
+/sonarqube duplications
+/sonarqube duplications apps/web
+```
+
+Use **Up/Down** to move, **Enter** for block locations and line ranges. Pass a file number directly to skip the browser: `/sonarqube duplications 1`.
+
+### 6. Open a specific issue
 
 ```
 /sonarqube open 3
@@ -89,6 +107,8 @@ Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 | `/sonarqube init [path]`         | Set up project config for a path               |
 | `/sonarqube analyze [target]`    | Run analysis and show issues + duplication metrics |
 | `/sonarqube issues [target]`     | Browse the latest analysis results for a target |
+| `/sonarqube metrics [target]`    | Show project metrics (duplication %, issue counts, no scanner) |
+| `/sonarqube duplications [target]` | Browse duplicated files and blocks with drill-down         |
 | `/sonarqube open [target] <n>`   | Preview source at issue #n                     |
 
 ## Tool (for the LLM)
@@ -97,6 +117,8 @@ The extension also registers a `sonarqube` tool that the LLM can call with actio
 
 - `analyze` — run analysis
 - `issues` — list issues
+- `metrics` — show project-level duplication & issue counts
+- `duplications` — list duplicated files and block details
 - `open` — open an issue with its index
 
 The tool accepts optional issue filters (`severities`, `statuses`, `types`, `rules`) so the agent can fetch just blocker/critical context.
