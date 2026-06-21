@@ -6,6 +6,7 @@ import type {
   SonarAnalysisState,
   SonarProjectConfig,
   SonarIssueFetchOptions,
+  SonarDuplicationMeasures,
 } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { parseProperties } from "./config.js";
@@ -440,7 +441,7 @@ export async function fetchRuleName(
 export function createAnalysisState(
   config: Pick<SonarProjectConfig, "baseDir" | "serverUrl" | "projectKey">,
   issues: SonarIssue[],
-  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters">> = {},
+  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters" | "measures">> = {},
 ): SonarAnalysisState {
   return {
     version: 1,
@@ -453,8 +454,38 @@ export function createAnalysisState(
     analysisId: extras.analysisId,
     filters: extras.filters,
     totalIssues: issues.length,
+    measures: extras.measures,
     issues,
   };
+}
+
+// ── Measures ──────────────────────────────────────────────────────────────────
+
+export async function fetchDuplicationMeasures(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<SonarDuplicationMeasures | undefined> {
+  try {
+    const url = `${serverUrl}/api/measures/component?component=${encodeURIComponent(projectKey)}&metricKeys=duplicated_lines_density,duplicated_lines,duplicated_blocks,duplicated_files`;
+    const result = await fetchJson<{
+      component: { measures: Array<{ metric: string; value: string }> };
+    }>(url, token, signal);
+    const measures = result.component.measures;
+    const getValue = (key: string): number => {
+      const m = measures.find((m) => m.metric === key);
+      return m ? Number.parseFloat(m.value) : 0;
+    };
+    return {
+      duplicatedLinesDensity: getValue("duplicated_lines_density"),
+      duplicatedLines: getValue("duplicated_lines"),
+      duplicatedBlocks: getValue("duplicated_blocks"),
+      duplicatedFiles: getValue("duplicated_files"),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function hasProjectAnalyses(

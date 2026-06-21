@@ -13,6 +13,13 @@ export interface SonarIssue {
   status?: string;
 }
 
+export interface SonarDuplicationMeasures {
+  duplicatedLinesDensity: number;
+  duplicatedLines: number;
+  duplicatedBlocks: number;
+  duplicatedFiles: number;
+}
+
 export interface SonarAnalysisState {
   version: 1;
   analyzedAt: string;
@@ -23,6 +30,7 @@ export interface SonarAnalysisState {
   ceTaskUrl?: string;
   analysisId?: string;
   filters?: SonarIssueFetchOptions;
+  measures?: SonarDuplicationMeasures;
   totalIssues: number;
   issues: SonarIssue[];
 }

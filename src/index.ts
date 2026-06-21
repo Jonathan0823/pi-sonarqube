@@ -29,6 +29,7 @@ import {
   waitForAnalysis,
   normalizeIssueFilters,
   fetchIssues,
+  fetchDuplicationMeasures,
   createAnalysisState,
   issueFilterLabel,
 } from "./api.js";
@@ -126,11 +127,20 @@ async function analyzeProject(
       normalizedFilters,
     );
 
+    analysisUi.setPhase("Fetching metrics...");
+    const measures = await fetchDuplicationMeasures(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    );
+
     const state = createAnalysisState(config, issues, {
       dashboardUrl,
       ceTaskUrl,
       analysisId,
       filters: normalizedFilters,
+      measures,
     });
 
     pi.appendEntry(STATE_TYPE, state);
@@ -249,12 +259,25 @@ function renderIssueListResult(
   theme: Theme,
 ): Text {
   const summary = formatSummary(state);
-  if (state.issues.length === 0) {
+  if (state.issues.length === 0 && !state.measures) {
     return new Text(theme.fg("success", summary), 0, 0);
   }
 
+  const lines: string[] = [];
+  lines.push(theme.fg("accent", summary));
+  if (state.measures) {
+    const density = state.measures.duplicatedLinesDensity.toFixed(1);
+    const detail = state.measures.duplicatedBlocks > 0
+      ? `Duplication: ${density}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
+      : `Duplication: ${density}%  (no duplications detected)`;
+    lines.push(theme.fg("dim", detail));
+  }
+
+  if (state.issues.length === 0) {
+    return new Text(lines.join("\n"), 0, 0);
+  }
+
   const visible = expanded ? state.issues : state.issues.slice(0, 5);
-  const lines: string[] = [theme.fg("accent", summary)];
   for (const [i, issue] of visible.entries()) {
     lines.push(theme.fg("muted", formatIssue(issue, i + 1)));
   }

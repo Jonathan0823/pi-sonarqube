@@ -62,7 +62,7 @@ Pi will:
 1. Run `sonar-scanner` against your server
 2. Wait for the analysis to complete
 3. Fetch the latest issues
-4. Return a concise summary
+4. Return a concise summary with issues and duplication metrics
 
 ### 3. Browse issues
 
@@ -87,7 +87,7 @@ Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 | Command                          | Description                                     |
 | -------------------------------- | ----------------------------------------------- |
 | `/sonarqube init [path]`         | Set up project config for a path               |
-| `/sonarqube analyze [target]`    | Run analysis for a target or path              |
+| `/sonarqube analyze [target]`    | Run analysis and show issues + duplication metrics |
 | `/sonarqube issues [target]`     | Browse the latest analysis results for a target |
 | `/sonarqube open [target] <n>`   | Preview source at issue #n                     |
 

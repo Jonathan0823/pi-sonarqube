@@ -1,5 +1,5 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions } from "./types.js";
+import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
@@ -203,6 +203,16 @@ export function formatIssue(issue: SonarIssue, index?: number): string {
   return `${prefix}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
 }
 
+export function formatDuplicationSummary(measures: SonarDuplicationMeasures): string {
+  const density = measures.duplicatedLinesDensity.toFixed(1);
+  return [
+    `  Duplication: ${density}% duplicated lines`,
+    `  Duplicated lines: ${measures.duplicatedLines}`,
+    `  Duplicated blocks: ${measures.duplicatedBlocks}`,
+    `  Duplicated files: ${measures.duplicatedFiles}`,
+  ].join("\n");
+}
+
 export function formatSummary(state: { totalIssues: number; projectKey: string; filters?: SonarIssueFetchOptions }): string {
   const issueCount = state.totalIssues;
   const filterLabel = state.filters ? ` (${issueFilterLabel(state.filters)})` : "";
@@ -219,6 +229,7 @@ export function formatReport(state: {
   baseDir: string;
   totalIssues: number;
   filters?: SonarIssueFetchOptions;
+  measures?: SonarDuplicationMeasures;
   issues: SonarIssue[];
 }): string {
   const lines = [
@@ -230,6 +241,12 @@ export function formatReport(state: {
 
   if (state.filters) {
     lines.push(`Filters: ${issueFilterLabel(state.filters)}`);
+  }
+
+  if (state.measures && state.issues.length > 0) {
+    lines.push("", state.measures.duplicatedBlocks > 0
+      ? `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
+      : `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  (no duplications detected)`);
   }
 
   if (state.issues.length === 0) {
