@@ -4,7 +4,7 @@ A Pi extension to run local SonarQube analysis and browse the resulting issues â
 
 ## Requirements
 
-- [Pi](https://github.com/earendil-works/pi-coding-agent) installed
+- [Pi](https://github.com/earendil-works/pi) installed
 - A running SonarQube server (e.g. `http://localhost:9000`)
 - `sonar-scanner` available in `$PATH`
 
