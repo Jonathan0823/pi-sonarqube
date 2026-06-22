@@ -10,16 +10,28 @@ import {
 } from "../dist/api.js";
 import { formatMetricsOutput } from "../dist/commands.js";
 
+function mockResponse(body, status = 200) {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    async json() {
+      return typeof body === "string" ? JSON.parse(body) : body;
+    },
+    async text() {
+      return text;
+    },
+  };
+}
+
 test("fetchCleanCodeMode caches by server URL", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
   try {
     globalThis.fetch = async () => {
       calls += 1;
-      return new Response(JSON.stringify({ mode: "MQR" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return mockResponse({ mode: "MQR" });
     };
 
     const first = await fetchCleanCodeMode("http://example.test", "token");
@@ -57,11 +69,7 @@ test("formats metrics with both severity and quality counts", () => {
 test("file duplication fetch surfaces permission errors", async () => {
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ errors: [{ msg: "Insufficient privileges" }] }), {
-        status: 403,
-        headers: { "content-type": "application/json" },
-      });
+    globalThis.fetch = async () => mockResponse({ errors: [{ msg: "Insufficient privileges" }] }, 403);
 
     await assert.rejects(
       () => fetchFileDuplications("http://example.test", "token", "demo", undefined),
