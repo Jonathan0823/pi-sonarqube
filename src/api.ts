@@ -113,46 +113,48 @@ export function assertFiltersNotAmbiguous(filters?: SonarIssueFetchOptions): voi
 
 const EXPLICIT_FILTER_RE = /^([^:=]+)[:=](.+)$/;
 
-const EXPLICIT_FILTER_PARSERS: Record<string, (values: string[]) => Partial<SonarIssueFetchOptions>> = {
-  severity: (values) => ({ severities: values.map((v) => v.toUpperCase()) }),
-  severities: (values) => ({ severities: values.map((v) => v.toUpperCase()) }),
-  status: (values) => ({ statuses: values.map((v) => v.toUpperCase()) }),
-  statuses: (values) => ({ statuses: values.map((v) => v.toUpperCase()) }),
-  type: (values) => ({ types: values.map((v) => v.toUpperCase()) }),
-  types: (values) => ({ types: values.map((v) => v.toUpperCase()) }),
-  rule: (values) => ({ rules: values }),
-  rules: (values) => ({ rules: values }),
-  quality: (values) => ({ softwareQualities: values.map((v) => v.toUpperCase()) }),
-  qualities: (values) => ({ softwareQualities: values.map((v) => v.toUpperCase()) }),
-  softwarequality: (values) => ({ softwareQualities: values.map((v) => v.toUpperCase()) }),
-  softwarequalities: (values) => ({ softwareQualities: values.map((v) => v.toUpperCase()) }),
-  impactseverity: (values) => ({ impactSeverities: values.map((v) => v.toUpperCase()) }),
-  impactseverities: (values) => ({ impactSeverities: values.map((v) => v.toUpperCase()) }),
-};
-
-const BARE_FILTER_PARSERS: Array<[readonly string[], (value: string) => Partial<SonarIssueFetchOptions>]> = [
-  [SONAR_SEVERITIES, (value) => ({ severities: [value] })],
-  [SONAR_STATUSES, (value) => ({ statuses: [value] })],
-  [SONAR_TYPES, (value) => ({ types: [value] })],
-  [SONAR_SOFTWARE_QUALITIES, (value) => ({ softwareQualities: [value] })],
-  [SONAR_IMPACT_SEVERITIES, (value) => ({ impactSeverities: [value] })],
-];
-
 export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOptions> | undefined {
   const trimmed = token.trim();
   if (!trimmed) return undefined;
 
   const explicit = EXPLICIT_FILTER_RE.exec(trimmed);
   if (explicit) {
+    const key = explicit[1].trim().toLowerCase();
     const values = explicit[2].split(",").map((p) => p.trim()).filter(Boolean);
     if (values.length === 0) return undefined;
-    return EXPLICIT_FILTER_PARSERS[explicit[1].trim().toLowerCase()]?.(values);
+
+    switch (key) {
+      case "severity":
+      case "severities":
+        return { severities: values.map((v) => v.toUpperCase()) };
+      case "status":
+      case "statuses":
+        return { statuses: values.map((v) => v.toUpperCase()) };
+      case "type":
+      case "types":
+        return { types: values.map((v) => v.toUpperCase()) };
+      case "rule":
+      case "rules":
+        return { rules: values };
+      case "quality":
+      case "qualities":
+      case "softwarequality":
+      case "softwarequalities":
+        return { softwareQualities: values.map((v) => v.toUpperCase()) };
+      case "impactseverity":
+      case "impactseverities":
+        return { impactSeverities: values.map((v) => v.toUpperCase()) };
+      default:
+        return undefined;
+    }
   }
 
   const upper = trimmed.toUpperCase();
-  for (const [values, parse] of BARE_FILTER_PARSERS) {
-    if (values.includes(upper)) return parse(upper);
-  }
+  if (SONAR_SEVERITIES.includes(upper as (typeof SONAR_SEVERITIES)[number])) return { severities: [upper] };
+  if (SONAR_STATUSES.includes(upper as (typeof SONAR_STATUSES)[number])) return { statuses: [upper] };
+  if (SONAR_TYPES.includes(upper as (typeof SONAR_TYPES)[number])) return { types: [upper] };
+  if (SONAR_SOFTWARE_QUALITIES.includes(upper as (typeof SONAR_SOFTWARE_QUALITIES)[number])) return { softwareQualities: [upper] };
+  if (SONAR_IMPACT_SEVERITIES.includes(upper as (typeof SONAR_IMPACT_SEVERITIES)[number])) return { impactSeverities: [upper] };
   return undefined;
 }
 
