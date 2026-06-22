@@ -11,8 +11,36 @@ import type {
   FileDuplication,
   DuplicationBlockGroup,
 } from "./types.js";
-import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
+import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
 import { parseProperties } from "./config.js";
+
+// ── Clean code mode detection ────────────────────────────────────────────────
+
+const cleanCodeModeCache = new Map<string, "STANDARD" | "MQR">();
+
+export async function fetchCleanCodeMode(
+  serverUrl: string,
+  token?: string,
+  signal?: AbortSignal,
+): Promise<"STANDARD" | "MQR" | undefined> {
+  const cached = cleanCodeModeCache.get(serverUrl);
+  if (cached) return cached;
+  try {
+    const result = await fetchJson<{ mode: string }>(
+      `${serverUrl}/api/v2/clean-code-policy/mode`,
+      token,
+      signal,
+    );
+    const mode = result.mode?.toUpperCase();
+    if (mode === "MQR" || mode === "STANDARD") {
+      cleanCodeModeCache.set(serverUrl, mode);
+      return mode;
+    }
+  } catch {
+    // ponytail: fall through to legacy behavior when mode lookup is unavailable.
+  }
+  return undefined;
+}
 
 // ── Auth / HTTP helpers ─────────────────────────────────────────────────────
 
@@ -61,8 +89,24 @@ export function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIs
     statuses: normalizeIssueList(filters?.statuses, true),
     types: normalizeIssueList(filters?.types, true),
     rules: normalizeIssueList(filters?.rules),
+    softwareQualities: normalizeIssueList(filters?.softwareQualities, true),
+    impactSeverities: normalizeIssueList(filters?.impactSeverities, true),
   };
-  return normalized.severities || normalized.statuses || normalized.types || normalized.rules ? normalized : undefined;
+  return normalized.severities || normalized.statuses || normalized.types || normalized.rules || normalized.softwareQualities || normalized.impactSeverities
+    ? normalized
+    : undefined;
+}
+
+export function assertFiltersNotAmbiguous(filters?: SonarIssueFetchOptions): void {
+  if (!filters) return;
+  const hasLegacy = Boolean(filters.severities?.length || filters.types?.length);
+  const hasMqr = Boolean(filters.softwareQualities?.length || filters.impactSeverities?.length);
+  if (hasLegacy && hasMqr) {
+    throw new Error(
+      "Ambiguous filter combination: mixing legacy filters (severity/type) with MQR filters (quality/impactSeverity) is not allowed. " +
+      "Use one filter family per command.",
+    );
+  }
 }
 
 const EXPLICIT_FILTER_RE = /^([^:=]+)[:=](.+)$/;
@@ -81,6 +125,10 @@ export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOpt
     if (key === "status" || key === "statuses") return { statuses: values.map((v) => v.toUpperCase()) };
     if (key === "type" || key === "types") return { types: values.map((v) => v.toUpperCase()) };
     if (key === "rule" || key === "rules") return { rules: values };
+    if (key === "quality" || key === "qualities" || key === "softwarequality" || key === "softwarequalities")
+      return { softwareQualities: values.map((v) => v.toUpperCase()) };
+    if (key === "impactseverity" || key === "impactseverities")
+      return { impactSeverities: values.map((v) => v.toUpperCase()) };
     return undefined;
   }
 
@@ -88,6 +136,10 @@ export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOpt
   if (SONAR_SEVERITIES.includes(upper as (typeof SONAR_SEVERITIES)[number])) return { severities: [upper] };
   if (SONAR_STATUSES.includes(upper as (typeof SONAR_STATUSES)[number])) return { statuses: [upper] };
   if (SONAR_TYPES.includes(upper as (typeof SONAR_TYPES)[number])) return { types: [upper] };
+  if (SONAR_SOFTWARE_QUALITIES.includes(upper as (typeof SONAR_SOFTWARE_QUALITIES)[number]))
+    return { softwareQualities: [upper] };
+  if (SONAR_IMPACT_SEVERITIES.includes(upper as (typeof SONAR_IMPACT_SEVERITIES)[number]))
+    return { impactSeverities: [upper] };
   return undefined;
 }
 
@@ -130,18 +182,21 @@ function mergeFilters(
     if (filter.statuses?.length) merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
     if (filter.types?.length) merged.types = [...(merged.types ?? []), ...filter.types];
     if (filter.rules?.length) merged.rules = [...(merged.rules ?? []), ...filter.rules];
+    if (filter.softwareQualities?.length) merged.softwareQualities = [...(merged.softwareQualities ?? []), ...filter.softwareQualities];
+    if (filter.impactSeverities?.length) merged.impactSeverities = [...(merged.impactSeverities ?? []), ...filter.impactSeverities];
   }
   return normalizeIssueFilters(merged);
 }
 
 export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
   if (!filters) return "";
-  const parts = [
-    filters.severities?.length ? `severities=${filters.severities.join(",")}` : "",
-    filters.statuses?.length ? `statuses=${filters.statuses.join(",")}` : "",
-    filters.types?.length ? `types=${filters.types.join(",")}` : "",
-    filters.rules?.length ? `rules=${filters.rules.join(",")}` : "",
-  ].filter(Boolean);
+  const parts: string[] = [];
+  if (filters.severities?.length) parts.push(`severities=${filters.severities.join(",")}`);
+  if (filters.statuses?.length) parts.push(`statuses=${filters.statuses.join(",")}`);
+  if (filters.types?.length) parts.push(`types=${filters.types.join(",")}`);
+  if (filters.rules?.length) parts.push(`rules=${filters.rules.join(",")}`);
+  if (filters.softwareQualities?.length) parts.push(`qualities=${filters.softwareQualities.join(",")}`);
+  if (filters.impactSeverities?.length) parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
   return parts.join(" • ");
 }
 
@@ -328,6 +383,8 @@ function buildIssueSearchUrl(
   if (filters?.statuses?.length) url.searchParams.set("statuses", filters.statuses.join(","));
   if (filters?.types?.length) url.searchParams.set("types", filters.types.join(","));
   if (filters?.rules?.length) url.searchParams.set("rules", filters.rules.join(","));
+  if (filters?.softwareQualities?.length) url.searchParams.set("impactSoftwareQualities", filters.softwareQualities.join(","));
+  if (filters?.impactSeverities?.length) url.searchParams.set("impactSeverities", filters.impactSeverities.join(","));
   return url.toString();
 }
 
@@ -387,6 +444,7 @@ export async function fetchIssues(
   signal?: AbortSignal,
   filters?: SonarIssueFetchOptions,
 ): Promise<SonarIssue[]> {
+  assertFiltersNotAmbiguous(filters);
   const normalizedFilters = normalizeIssueFilters(filters);
   const issues: SonarIssue[] = [];
   const ruleNames = new Map<string, string | undefined>();
@@ -440,7 +498,7 @@ export async function fetchRuleName(
 export function createAnalysisState(
   config: Pick<SonarProjectConfig, "baseDir" | "serverUrl" | "projectKey">,
   issues: SonarIssue[],
-  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters" | "measures">> = {},
+  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters" | "measures" | "cleanCodeMode">> = {},
 ): SonarAnalysisState {
   return {
     version: 1,
@@ -454,6 +512,7 @@ export function createAnalysisState(
     filters: extras.filters,
     totalIssues: issues.length,
     measures: extras.measures,
+    cleanCodeMode: extras.cleanCodeMode,
     issues,
   };
 }
