@@ -3,7 +3,7 @@ import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions, FileDuplication } from "./types.js";
-import { issueFilterLabel, fetchIssues, createAnalysisState, normalizeIssueFilters } from "./api.js";
+import { issueFilterLabel, fetchIssues, createAnalysisState, normalizeIssueFilters, fetchCleanCodeMode } from "./api.js";
 import { resolveConfig, resolveTarget } from "./config.js";
 
 // ── Issue preview ───────────────────────────────────────────────────────────
@@ -300,7 +300,8 @@ export async function loadProjectIssuesFromApi(
     ctx.signal,
     normalizedFilters,
   );
-  return createAnalysisState(config, issues, { filters: normalizedFilters });
+  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
+  return createAnalysisState(config, issues, { filters: normalizedFilters, cleanCodeMode });
 }
 
 export async function resolveTargetState(

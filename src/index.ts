@@ -37,6 +37,8 @@ import {
   fetchFileDuplicationBlocks,
   createAnalysisState,
   issueFilterLabel,
+  fetchCleanCodeMode,
+  assertFiltersNotAmbiguous,
 } from "./api.js";
 import {
   STATE_TYPE,
@@ -76,6 +78,12 @@ const SonarToolParams = Type.Object({
   ),
   types: Type.Optional(Type.Array(Type.String({ description: "Issue type to fetch (e.g. BUG)" }))),
   rules: Type.Optional(Type.Array(Type.String({ description: "Rule keys to fetch" }))),
+  softwareQualities: Type.Optional(
+    Type.Array(Type.String({ description: "Software quality to fetch (e.g. MAINTAINABILITY)" })),
+  ),
+  impactSeverities: Type.Optional(
+    Type.Array(Type.String({ description: "Impact severity to fetch (e.g. HIGH)" })),
+  ),
 });
 
 // ── State restoration ───────────────────────────────────────────────────────
@@ -144,12 +152,16 @@ async function analyzeProject(
       ctx.signal,
     );
 
+    analysisUi.setPhase("Detecting mode...");
+    const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
+
     const state = createAnalysisState(config, issues, {
       dashboardUrl,
       ceTaskUrl,
       analysisId,
       filters: normalizedFilters,
       measures,
+      cleanCodeMode,
     });
 
     pi.appendEntry(STATE_TYPE, state);
@@ -324,7 +336,7 @@ export default function sonarqube(pi: ExtensionAPI) {
 
           const argumentText = match[1] ?? "";
           const { current: currentToken } = splitSonarArgumentContext(argumentText);
-          const extraItems = sonarArgumentCompletions(argumentText, latestState?.issues) ?? [];
+          const extraItems = sonarArgumentCompletions(argumentText, latestState?.issues, latestState?.cleanCodeMode) ?? [];
           const currentSuggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
           const merged = mergeAutocompleteSuggestions(currentToken, currentSuggestions, extraItems);
           return merged ?? currentSuggestions;
@@ -352,7 +364,7 @@ export default function sonarqube(pi: ExtensionAPI) {
     promptSnippet: "Run local SonarQube analysis or inspect issue results",
     promptGuidelines: [
       "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
-      "Use the optional severity, status, type, and rule filters to fetch only the most relevant issues.",
+      "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
     ],
     parameters: SonarToolParams,
 
@@ -363,7 +375,10 @@ export default function sonarqube(pi: ExtensionAPI) {
           statuses: params.statuses,
           types: params.types,
           rules: params.rules,
+          softwareQualities: params.softwareQualities,
+          impactSeverities: params.impactSeverities,
         });
+        assertFiltersNotAmbiguous(filters);
 
         if (params.action === "analyze") {
           const state = await analyzeProject(pi, ctx, params.path, filters);
@@ -414,6 +429,8 @@ export default function sonarqube(pi: ExtensionAPI) {
         statuses: args.statuses,
         types: args.types,
         rules: args.rules,
+        softwareQualities: args.softwareQualities,
+        impactSeverities: args.impactSeverities,
       });
       const filterText = filters ? ` ${theme.fg("muted", issueFilterLabel(filters))}` : "";
       return new Text(
@@ -457,7 +474,7 @@ export default function sonarqube(pi: ExtensionAPI) {
 
   pi.registerCommand("sonarqube", {
     description: "Run a local SonarQube analysis, browse the latest issues, or init project config",
-    getArgumentCompletions: (argumentPrefix) => sonarArgumentCompletions(argumentPrefix, latestState?.issues),
+    getArgumentCompletions: (argumentPrefix) => sonarArgumentCompletions(argumentPrefix, latestState?.issues, latestState?.cleanCodeMode),
     handler: async (args, ctx) => {
       try {
         const parsed = parseCommandArgs(args);
