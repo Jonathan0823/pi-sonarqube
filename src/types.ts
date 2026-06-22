@@ -28,6 +28,12 @@ export interface IssueSeverityCounts {
   info: number;
 }
 
+export interface IssueQualityCounts {
+  maintainability: number;
+  reliability: number;
+  security: number;
+}
+
 export interface FileDuplication {
   filePath: string;
   fileKey: string;
@@ -58,6 +64,7 @@ export interface SonarAnalysisState {
   measures?: SonarDuplicationMeasures;
   totalIssues: number;
   issues: SonarIssue[];
+  cleanCodeMode?: "STANDARD" | "MQR";
 }
 
 export interface SonarProjectConfig {
@@ -73,6 +80,8 @@ export interface SonarIssueFetchOptions {
   statuses?: string[];
   types?: string[];
   rules?: string[];
+  softwareQualities?: string[];
+  impactSeverities?: string[];
 }
 
 export interface SonarInitConfig {
@@ -110,3 +119,5 @@ export interface InitCommandOptions {
 export const SONAR_SEVERITIES = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"] as const;
 export const SONAR_STATUSES = ["OPEN", "CONFIRMED", "REOPENED", "RESOLVED", "CLOSED"] as const;
 export const SONAR_TYPES = ["BUG", "VULNERABILITY", "CODE_SMELL"] as const;
+export const SONAR_SOFTWARE_QUALITIES = ["MAINTAINABILITY", "RELIABILITY", "SECURITY"] as const;
+export const SONAR_IMPACT_SEVERITIES = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"] as const;

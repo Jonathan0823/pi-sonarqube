@@ -1,6 +1,6 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
-import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
+import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, IssueQualityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
+import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -69,23 +69,34 @@ export function splitSonarArgumentContext(
   };
 }
 
-function createFilterCompletionList(): AutocompleteItem[] {
-  const entries: AutocompleteItem[] = [];
-  const add = (value: string, desc: string) => {
-    entries.push(
-      { value: `severity:${value}`, label: `severity:${value}`, description: desc },
-      { value, label: value, description: desc },
+function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem[] {
+  const buildItems = (
+    groups: ReadonlyArray<readonly [string, readonly string[], string, boolean]>,
+  ): AutocompleteItem[] =>
+    groups.flatMap(([prefix, values, description, includeBare]) =>
+      values.flatMap((value) => [
+        { value: `${prefix}:${value}`, label: `${prefix}:${value}`, description },
+        ...(includeBare ? [{ value, label: value, description }] : []),
+      ]),
     );
-  };
-  for (const value of SONAR_SEVERITIES) add(value, "severity");
-  for (const value of SONAR_STATUSES) add(value, "status");
-  for (const value of SONAR_TYPES) add(value, "type");
-  return entries;
+
+  const legacyGroups = [
+    ["severity", SONAR_SEVERITIES, "severity", true],
+    ["status", SONAR_STATUSES, "status", true],
+    ["type", SONAR_TYPES, "type", true],
+  ] as const;
+  const mqrGroups = [
+    ["quality", SONAR_SOFTWARE_QUALITIES, "software quality (MQR)", true],
+    ["impactSeverity", SONAR_IMPACT_SEVERITIES, "impact severity (MQR)", false],
+  ] as const;
+
+  return mode === "MQR" ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)] : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
 export function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
+  mode?: "STANDARD" | "MQR",
 ): AutocompleteItem[] | null {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
@@ -102,13 +113,13 @@ export function sonarArgumentCompletions(
       const lineSuffix = issue.line ? `:${issue.line}` : "";
       return { value: String(index + 1), label: String(index + 1), description: `${issue.severity} ${issue.filePath}${lineSuffix}` };
     });
-    const suggestions = [...issueItems, ...createFilterCompletionList()];
+    const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
     const filtered = filterAutocompleteItems(suggestions, current);
     return filtered.length > 0 ? filtered : null;
   }
 
   if (lowerCommand === "analyze" || lowerCommand === "issues") {
-    const suggestions = createFilterCompletionList();
+    const suggestions = createFilterCompletionList(mode);
     const filtered = filterAutocompleteItems(suggestions, current);
     return filtered.length > 0 ? filtered : null;
   }
@@ -182,9 +193,15 @@ export function helpText(): string {
     "Filters:",
     "  /sonarqube issues be CRITICAL",
     "  /sonarqube issues be severity:CRITICAL status:OPEN",
+    "  /sonarqube issues be quality:RELIABILITY",
+    "  /sonarqube issues be quality:SECURITY impactSeverity:HIGH",
     "",
     "Autocomplete:",
     "  type /sonarqube and press Tab to complete the subcommand or filters",
+    "",
+    "Notes:",
+    "  Legacy filters (severity, type) and MQR filters (quality, impactSeverity)",
+    "  cannot be combined in the same command. Use one filter family per query.",
     "",
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
@@ -213,6 +230,7 @@ export function formatMetricsOutput(metrics: {
   projectKey: string;
   measures?: SonarDuplicationMeasures;
   issueCounts?: IssueSeverityCounts;
+  issueQualityCounts?: IssueQualityCounts;
 }): string {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 
@@ -234,6 +252,15 @@ export function formatMetricsOutput(metrics: {
       `INFO ${metrics.issueCounts.info}`,
     ];
     lines.push(`Issues:  ${counts.join("  ")}`);
+  }
+
+  if (metrics.issueQualityCounts) {
+    const counts = [
+      `MAINTAINABILITY ${metrics.issueQualityCounts.maintainability}`,
+      `RELIABILITY ${metrics.issueQualityCounts.reliability}`,
+      `SECURITY ${metrics.issueQualityCounts.security}`,
+    ];
+    lines.push(`Quality: ${counts.join("  ")}`);
   }
 
   return lines.join("\n");
