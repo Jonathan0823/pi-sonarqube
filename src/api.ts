@@ -8,6 +8,7 @@ import type {
   SonarIssueFetchOptions,
   SonarDuplicationMeasures,
   IssueSeverityCounts,
+  IssueQualityCounts,
   FileDuplication,
   DuplicationBlockGroup,
 } from "./types.js";
@@ -569,6 +570,33 @@ export async function fetchIssueSeverityCounts(
       major: getCount("MAJOR"),
       minor: getCount("MINOR"),
       info: getCount("INFO"),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function fetchIssueQualityCounts(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<IssueQualityCounts | undefined> {
+  try {
+    const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=impactSoftwareQualities`;
+    const result = await fetchJson<{
+      facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
+    }>(url, token, signal);
+    const facet = result.facets?.find((f) => f.property === "impactSoftwareQualities");
+    if (!facet) return undefined;
+    const getCount = (q: string): number => {
+      const entry = facet.values.find((v) => v.val === q);
+      return entry?.count ?? 0;
+    };
+    return {
+      maintainability: getCount("MAINTAINABILITY"),
+      reliability: getCount("RELIABILITY"),
+      security: getCount("SECURITY"),
     };
   } catch {
     return undefined;

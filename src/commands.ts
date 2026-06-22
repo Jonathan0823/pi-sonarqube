@@ -1,5 +1,5 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
+import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, IssueQualityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
 import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
@@ -238,6 +238,7 @@ export function formatMetricsOutput(metrics: {
   projectKey: string;
   measures?: SonarDuplicationMeasures;
   issueCounts?: IssueSeverityCounts;
+  issueQualityCounts?: IssueQualityCounts;
 }): string {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 
@@ -259,6 +260,15 @@ export function formatMetricsOutput(metrics: {
       `INFO ${metrics.issueCounts.info}`,
     ];
     lines.push(`Issues:  ${counts.join("  ")}`);
+  }
+
+  if (metrics.issueQualityCounts) {
+    const counts = [
+      `MAINTAINABILITY ${metrics.issueQualityCounts.maintainability}`,
+      `RELIABILITY ${metrics.issueQualityCounts.reliability}`,
+      `SECURITY ${metrics.issueQualityCounts.security}`,
+    ];
+    lines.push(`Quality: ${counts.join("  ")}`);
   }
 
   return lines.join("\n");

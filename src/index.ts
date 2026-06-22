@@ -12,6 +12,7 @@ import type {
   InitCommandOptions,
   FileDuplication,
   SonarProjectConfig,
+  IssueQualityCounts,
 } from "./types.js";
 import {
   slugify,
@@ -33,6 +34,7 @@ import {
   fetchIssues,
   fetchDuplicationMeasures,
   fetchIssueSeverityCounts,
+  fetchIssueQualityCounts,
   fetchFileDuplications,
   fetchFileDuplicationBlocks,
   createAnalysisState,
@@ -532,17 +534,18 @@ async function commandMetrics(
   targetInput?: string,
 ): Promise<void> {
   const config = await resolveConfig(ctx, targetInput);
-  const [measures, issueCounts] = await Promise.all([
+  const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
     fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
   ]);
-  if (!measures && !issueCounts) {
+  if (!measures && !issueCounts && !qualityCounts) {
     if (ctx.hasUI) {
       ctx.ui.notify(`Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`, "warning");
     }
     return;
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts });
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
   }
@@ -724,18 +727,19 @@ async function toolMetrics(ctx: any, path: string | undefined): Promise<{ conten
       details: { error: "Project not configured." },
     };
   }
-  const [measures, issueCounts] = await Promise.all([
+  const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
     fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
   ]);
-  if (!measures && !issueCounts) {
+  if (!measures && !issueCounts && !qualityCounts) {
     return {
       content: [{ type: "text", text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` }],
       details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
     };
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts });
-  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts } };
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts });
+  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts } };
 }
 
 // ── Re-exports for public API ───────────────────────────────────────────────
@@ -747,6 +751,7 @@ export type {
   SonarProjectConfig,
   SonarIssueFetchOptions,
   SonarInitConfig,
+  IssueQualityCounts,
 } from "./types.js";
 
 export { projectConfigPath, loadProjectConfig, saveProjectConfig } from "./config.js";

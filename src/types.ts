@@ -28,6 +28,12 @@ export interface IssueSeverityCounts {
   info: number;
 }
 
+export interface IssueQualityCounts {
+  maintainability: number;
+  reliability: number;
+  security: number;
+}
+
 export interface FileDuplication {
   filePath: string;
   fileKey: string;
