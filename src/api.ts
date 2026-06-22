@@ -66,7 +66,8 @@ export async function fetchJson<T>(url: string, token?: string, signal?: AbortSi
   return (await response.json()) as T;
 }
 
-export function toIssuePath(component: string, projectKey: string): string {
+export function toIssuePath(component: string | undefined | null, projectKey: string): string {
+  if (typeof component !== "string" || component.length === 0) return projectKey;
   const prefix = `${projectKey}:`;
   if (component.startsWith(prefix)) return component.slice(prefix.length);
   const colon = component.indexOf(":");
@@ -625,42 +626,35 @@ export async function fetchFileDuplications(
   projectKey: string,
   signal?: AbortSignal,
 ): Promise<FileDuplication[]> {
-  // Get file keys from issues search facets
-  const facetUrl = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&ps=1&facets=files`;
-  const facetResult = await fetchJson<{
-    facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
-  }>(facetUrl, token, signal);
+  const treeUrl = `${serverUrl}/api/measures/component_tree?component=${encodeURIComponent(projectKey)}&qualifiers=FIL&metricKeys=duplicated_lines,duplicated_blocks&ps=500`;
+  const treeResult = await fetchJson<{
+    components: Array<{
+      key: string;
+      path?: string;
+      name?: string;
+      measures?: Array<{ metric: string; value: string }>;
+    }>;
+  }>(treeUrl, token, signal);
 
-  const fileFacet = facetResult.facets?.find((f) => f.property === "files");
-  if (!fileFacet?.values?.length) return [];
+  const results = (treeResult.components ?? [])
+    .map((component) => {
+      const measures = component.measures ?? [];
+      const getValue = (metric: string): number => {
+        const m = measures.find((item) => item.metric === metric);
+        return m ? Number.parseInt(m.value, 10) : 0;
+      };
+      const duplicatedBlocks = getValue("duplicated_blocks");
+      if (duplicatedBlocks <= 0) return null;
+      return {
+        filePath: component.path ?? toIssuePath(component.key, projectKey) ?? component.name ?? component.key,
+        fileKey: component.key,
+        duplicatedLines: getValue("duplicated_lines"),
+        duplicatedBlocks,
+      };
+    })
+    .filter((f): f is FileDuplication => f !== null);
 
-  // Query per-file duplication measures. CATCH errors per file (404/403 = inaccessible)
-  const results: Array<FileDuplication | null> = await Promise.all(
-    fileFacet.values.map(async (entry) => {
-      try {
-        const fileKey = `${projectKey}:${entry.val}`;
-        const url = `${serverUrl}/api/measures/component?component=${encodeURIComponent(fileKey)}&metricKeys=duplicated_lines,duplicated_blocks`;
-        const res = await fetchJson<{
-          component: { measures?: Array<{ metric: string; value: string }> };
-        }>(url, token, signal);
-        const measures = res.component.measures ?? [];
-        const getValue = (metric: string): number => {
-          const m = measures.find((m) => m.metric === metric);
-          return m ? Number.parseInt(m.value, 10) : 0;
-        };
-        return {
-          filePath: entry.val,
-          fileKey: `${projectKey}:${entry.val}`,
-          duplicatedLines: getValue("duplicated_lines"),
-          duplicatedBlocks: getValue("duplicated_blocks"),
-        };
-      } catch {
-        return null;
-      }
-    }),
-  );
-
-  return results.filter((f): f is FileDuplication => f !== null && f.duplicatedBlocks > 0);
+  return results;
 }
 
 export async function fetchFileDuplicationBlocks(

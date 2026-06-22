@@ -571,18 +571,7 @@ async function commandDuplications(
     throw error;
   }
   if (files.length === 0) {
-    // Fallback: check project-level metrics for confirmation
-    const projectMeasures = await fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal).catch(() => undefined);
-    if (projectMeasures && projectMeasures.duplicatedFiles > 0) {
-      if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Cannot list individual files — your SonarQube token lacks "See Source Code" permission. Grant it in SonarQube project permissions, then run /sonarqube init to update the token.`,
-          "warning",
-        );
-      }
-    } else if (ctx.hasUI) {
-      ctx.ui.notify("No duplications found.", "info");
-    }
+    if (ctx.hasUI) ctx.ui.notify("No duplications found.", "info");
     return;
   }
 
