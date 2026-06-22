@@ -33,6 +33,9 @@
     "pi-package"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "Jonathan0823",
   "repository": {
     "type": "git",
