@@ -70,35 +70,29 @@ export function splitSonarArgumentContext(
 }
 
 function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem[] {
-  const entries: AutocompleteItem[] = [];
-  const add = (value: string, desc: string) => {
-    entries.push(
-      { value: `severity:${value}`, label: `severity:${value}`, description: desc },
-      { value, label: value, description: desc },
-    );
-  };
-  // Legacy filters (always shown)
-  for (const value of SONAR_SEVERITIES) add(value, "severity");
-  for (const value of SONAR_STATUSES) add(value, "status");
-  for (const value of SONAR_TYPES) add(value, "type");
+  const legacyEntries: AutocompleteItem[] = [];
+  for (const value of SONAR_SEVERITIES) {
+    legacyEntries.push({ value: `severity:${value}`, label: `severity:${value}`, description: "severity" }, { value, label: value, description: "severity" });
+  }
+  for (const value of SONAR_STATUSES) {
+    legacyEntries.push({ value: `status:${value}`, label: `status:${value}`, description: "status" }, { value, label: value, description: "status" });
+  }
+  for (const value of SONAR_TYPES) {
+    legacyEntries.push({ value: `type:${value}`, label: `type:${value}`, description: "type" }, { value, label: value, description: "type" });
+  }
 
-  // MQR filters (always shown; ordered first in MQR mode)
   const mqrEntries: AutocompleteItem[] = [];
   for (const value of SONAR_SOFTWARE_QUALITIES) {
-    const desc = "software quality (MQR)";
-    mqrEntries.push({ value: `quality:${value}`, label: `quality:${value}`, description: desc });
-    mqrEntries.push({ value, label: value, description: desc });
+    mqrEntries.push(
+      { value: `quality:${value}`, label: `quality:${value}`, description: "software quality (MQR)" },
+      { value, label: value, description: "software quality (MQR)" },
+    );
   }
   for (const value of SONAR_IMPACT_SEVERITIES) {
     mqrEntries.push({ value: `impactSeverity:${value}`, label: `impactSeverity:${value}`, description: "impact severity (MQR)" });
   }
 
-  if (mode === "MQR") {
-    // MQR first, then legacy
-    return [...mqrEntries, ...entries];
-  }
-  // Legacy first (STANDARD or unknown)
-  return [...entries, ...mqrEntries];
+  return mode === "MQR" ? [...mqrEntries, ...legacyEntries] : [...legacyEntries, ...mqrEntries];
 }
 
 export function sonarArgumentCompletions(

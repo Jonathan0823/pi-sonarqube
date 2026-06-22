@@ -100,9 +100,10 @@ export function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIs
 
 export function assertFiltersNotAmbiguous(filters?: SonarIssueFetchOptions): void {
   if (!filters) return;
-  const hasLegacy = Boolean(filters.severities?.length || filters.types?.length);
-  const hasMqr = Boolean(filters.softwareQualities?.length || filters.impactSeverities?.length);
-  if (hasLegacy && hasMqr) {
+  if (
+    (filters.severities?.length || filters.types?.length) &&
+    (filters.softwareQualities?.length || filters.impactSeverities?.length)
+  ) {
     throw new Error(
       "Ambiguous filter combination: mixing legacy filters (severity/type) with MQR filters (quality/impactSeverity) is not allowed. " +
       "Use one filter family per command.",
