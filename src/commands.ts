@@ -70,29 +70,27 @@ export function splitSonarArgumentContext(
 }
 
 function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem[] {
-  const legacyEntries: AutocompleteItem[] = [];
-  for (const value of SONAR_SEVERITIES) {
-    legacyEntries.push({ value: `severity:${value}`, label: `severity:${value}`, description: "severity" }, { value, label: value, description: "severity" });
-  }
-  for (const value of SONAR_STATUSES) {
-    legacyEntries.push({ value: `status:${value}`, label: `status:${value}`, description: "status" }, { value, label: value, description: "status" });
-  }
-  for (const value of SONAR_TYPES) {
-    legacyEntries.push({ value: `type:${value}`, label: `type:${value}`, description: "type" }, { value, label: value, description: "type" });
-  }
-
-  const mqrEntries: AutocompleteItem[] = [];
-  for (const value of SONAR_SOFTWARE_QUALITIES) {
-    mqrEntries.push(
-      { value: `quality:${value}`, label: `quality:${value}`, description: "software quality (MQR)" },
-      { value, label: value, description: "software quality (MQR)" },
+  const buildItems = (
+    groups: ReadonlyArray<readonly [string, readonly string[], string, boolean]>,
+  ): AutocompleteItem[] =>
+    groups.flatMap(([prefix, values, description, includeBare]) =>
+      values.flatMap((value) => [
+        { value: `${prefix}:${value}`, label: `${prefix}:${value}`, description },
+        ...(includeBare ? [{ value, label: value, description }] : []),
+      ]),
     );
-  }
-  for (const value of SONAR_IMPACT_SEVERITIES) {
-    mqrEntries.push({ value: `impactSeverity:${value}`, label: `impactSeverity:${value}`, description: "impact severity (MQR)" });
-  }
 
-  return mode === "MQR" ? [...mqrEntries, ...legacyEntries] : [...legacyEntries, ...mqrEntries];
+  const legacyGroups = [
+    ["severity", SONAR_SEVERITIES, "severity", true],
+    ["status", SONAR_STATUSES, "status", true],
+    ["type", SONAR_TYPES, "type", true],
+  ] as const;
+  const mqrGroups = [
+    ["quality", SONAR_SOFTWARE_QUALITIES, "software quality (MQR)", true],
+    ["impactSeverity", SONAR_IMPACT_SEVERITIES, "impact severity (MQR)", false],
+  ] as const;
+
+  return mode === "MQR" ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)] : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
 export function sonarArgumentCompletions(

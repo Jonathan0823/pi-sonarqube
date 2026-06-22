@@ -12,7 +12,6 @@ import type {
   InitCommandOptions,
   FileDuplication,
   SonarProjectConfig,
-  IssueQualityCounts,
 } from "./types.js";
 import {
   slugify,
