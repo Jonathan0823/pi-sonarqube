@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   assertFiltersNotAmbiguous,
   fetchCleanCodeMode,
+  fetchFileDuplications,
   issueFilterLabel,
   parseIssueFilterToken,
 } from "../dist/api.js";
@@ -51,4 +52,22 @@ test("formats metrics with both severity and quality counts", () => {
   assert.match(text, /Issues:\s+BLOCKER 1/);
   assert.match(text, /Quality:\s+MAINTAINABILITY 6/);
   assert.match(issueFilterLabel({ softwareQualities: ["SECURITY"], impactSeverities: ["HIGH"] }), /qualities=SECURITY/);
+});
+
+test("file duplication fetch surfaces permission errors", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ errors: [{ msg: "Insufficient privileges" }] }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+
+    await assert.rejects(
+      () => fetchFileDuplications("http://example.test", "token", "demo", undefined),
+      /403|Insufficient privileges/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
