@@ -81,95 +81,35 @@ export class IssueBrowser {
   invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
-    if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
-      this.done(null);
-      return;
-    }
-    if (matchesKey(data, Key.up)) {
-      this.selected = Math.max(0, this.selected - 1);
-      return;
-    }
-    if (matchesKey(data, Key.down)) {
-      this.selected = Math.min(this.state.issues.length - 1, this.selected + 1);
-      return;
-    }
-    if (matchesKey(data, Key.enter)) {
-      this.done(this.selected);
-    }
+    this.selected = handleListBrowserInput(data, this.selected, this.state.issues.length, this.done);
   }
 
   render(width: number): string[] {
-    const lines: string[] = [];
-    const title = this.theme.fg("accent", this.theme.bold(" SonarQube Issues "));
     const filterSuffix = this.state.filters ? ` • ${issueFilterLabel(this.state.filters)}` : "";
-    const subtitle = this.theme.fg(
-      "dim",
-      `${this.state.projectKey} • ${this.state.totalIssues} issue(s)${filterSuffix}`,
-    );
-    lines.push(
-      truncateToWidth(title, width),
-      truncateToWidth(subtitle, width),
-      "",
-    );
-
-    const pageSize = Math.min(20, this.state.issues.length);
-    const halfWindow = Math.floor(pageSize / 2);
-    const maxStart = Math.max(0, this.state.issues.length - pageSize);
-    const start = Math.max(0, Math.min(this.selected - halfWindow, maxStart));
-    const end = Math.min(this.state.issues.length, start + pageSize);
-    const visibleIssues = this.state.issues.slice(start, end);
-
-    if (visibleIssues.length === 0) {
-      lines.push(
-        truncateToWidth(this.theme.fg("success", "No open issues found."), width),
-        "",
-        truncateToWidth(
-          this.theme.fg("dim", "Up/Down to move, Enter to preview, Esc to close"),
-          width,
-        ),
-      );
-      return lines;
-    }
-
-    if (start > 0) {
-      lines.push(truncateToWidth(this.theme.fg("dim", `... ${start} more above`), width));
-    }
-    for (const [offset, issue] of visibleIssues.entries()) {
-      const issueIndex = start + offset;
-      const isSelected = issueIndex === this.selected;
-      const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
-      const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
-      const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
-      const severity = severityColor(this.theme, issue.severity);
-      const summary = [
-        marker,
-        String(issueIndex + 1).padStart(2, " "),
-        ".",
-        severity,
-        this.theme.fg("accent", location),
-        this.theme.fg("muted", rule),
-        this.theme.fg("text", `— ${issue.message}`),
-      ].join(" ");
-      lines.push(truncateToWidth(summary, width));
-    }
-    if (end < this.state.issues.length) {
-      lines.push(
-        truncateToWidth(
-          this.theme.fg("dim", `... ${this.state.issues.length - end} more below`),
-          width,
-        ),
-      );
-    }
-
-    lines.push(
-      "",
-      truncateToWidth(
-        this.theme.fg("dim", "Up/Down to move, Enter to preview, Esc to close"),
-        width,
-      ),
-    );
-
-    return lines;
+    return renderListBrowser(this.theme, width, {
+      title: "SonarQube Issues",
+      subtitle: `${this.state.projectKey} • ${this.state.totalIssues} issue(s)${filterSuffix}`,
+      items: this.state.issues,
+      selected: this.selected,
+      pageSize: 20,
+      emptyMessage: "No open issues found.",
+      footer: "Up/Down to move, Enter to preview, Esc to close",
+      renderItem: (issue, issueIndex, isSelected) => {
+        const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
+        const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
+        const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
+        const severity = severityColor(this.theme, issue.severity);
+        return [
+          marker,
+          String(issueIndex + 1).padStart(2, " "),
+          ".",
+          severity,
+          this.theme.fg("accent", location),
+          this.theme.fg("muted", rule),
+          this.theme.fg("text", `— ${issue.message}`),
+        ].join(" ");
+      },
+    });
   }
 }
 
@@ -189,6 +129,86 @@ function severityColor(theme: Theme, severity: string): string {
   }
 }
 
+function handleListBrowserInput(
+  data: string,
+  selected: number,
+  count: number,
+  done: (result: number | null) => void,
+): number {
+  if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
+    done(null);
+    return selected;
+  }
+  if (matchesKey(data, Key.up)) {
+    return Math.max(0, selected - 1);
+  }
+  if (matchesKey(data, Key.down)) {
+    return Math.min(Math.max(0, count - 1), selected + 1);
+  }
+  if (matchesKey(data, Key.enter)) {
+    done(selected);
+  }
+  return selected;
+}
+
+function getBrowserWindow(selected: number, total: number, pageSize: number): { start: number; end: number } {
+  const halfWindow = Math.floor(pageSize / 2);
+  const maxStart = Math.max(0, total - pageSize);
+  const start = Math.max(0, Math.min(selected - halfWindow, maxStart));
+  const end = Math.min(total, start + pageSize);
+  return { start, end };
+}
+
+interface ListBrowserRenderConfig<T> {
+  title: string;
+  subtitle: string;
+  items: readonly T[];
+  selected: number;
+  pageSize: number;
+  emptyMessage: string;
+  footer: string;
+  renderItem: (item: T, index: number, isSelected: boolean) => string;
+}
+
+function renderListBrowser<T>(
+  theme: Theme,
+  width: number,
+  config: ListBrowserRenderConfig<T>,
+): string[] {
+  const lines: string[] = [
+    truncateToWidth(theme.fg("accent", theme.bold(` ${config.title} `)), width),
+    truncateToWidth(theme.fg("dim", config.subtitle), width),
+    "",
+  ];
+
+  const pageSize = Math.min(config.pageSize, config.items.length);
+  const { start, end } = getBrowserWindow(config.selected, config.items.length, pageSize);
+  const visible = config.items.slice(start, end);
+
+  if (visible.length === 0) {
+    lines.push(
+      truncateToWidth(theme.fg("success", config.emptyMessage), width),
+      "",
+      truncateToWidth(theme.fg("dim", config.footer), width),
+    );
+    return lines;
+  }
+
+  if (start > 0) {
+    lines.push(truncateToWidth(theme.fg("dim", `... ${start} more above`), width));
+  }
+  for (const [offset, item] of visible.entries()) {
+    const index = start + offset;
+    lines.push(truncateToWidth(config.renderItem(item, index, index === config.selected), width));
+  }
+  if (end < config.items.length) {
+    lines.push(truncateToWidth(theme.fg("dim", `... ${config.items.length - end} more below`), width));
+  }
+
+  lines.push("", truncateToWidth(theme.fg("dim", config.footer), width));
+  return lines;
+}
+
 // ── Duplication browser (used by index.ts) ─────────────────────────────────
 
 export class DuplicationBrowser {
@@ -203,51 +223,24 @@ export class DuplicationBrowser {
   invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
-    if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
-      this.done(null);
-      return;
-    }
-    if (matchesKey(data, Key.up)) {
-      this.selected = Math.max(0, this.selected - 1);
-      return;
-    }
-    if (matchesKey(data, Key.down)) {
-      this.selected = Math.min(this.files.length - 1, this.selected + 1);
-      return;
-    }
-    if (matchesKey(data, Key.enter)) {
-      this.done(this.selected);
-    }
+    this.selected = handleListBrowserInput(data, this.selected, this.files.length, this.done);
   }
 
   render(width: number): string[] {
-    const lines: string[] = [
-      this.theme.fg("accent", this.theme.bold(" SonarQube Duplications ")),
-      this.theme.fg("dim", `${this.files.length} file(s) with duplicate code`),
-      "",
-    ];
-
-    const pageSize = Math.min(15, this.files.length);
-    const halfWindow = Math.floor(pageSize / 2);
-    const maxStart = Math.max(0, this.files.length - pageSize);
-    const start = Math.max(0, Math.min(this.selected - halfWindow, maxStart));
-    const end = Math.min(this.files.length, start + pageSize);
-    const visible = this.files.slice(start, end);
-
-    for (const [offset, file] of visible.entries()) {
-      const index = start + offset;
-      const isSelected = index === this.selected;
-      const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
-      const detail = `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
-      const line = `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", detail)}`;
-      lines.push(truncateToWidth(line, width));
-    }
-
-    lines.push(
-      "",
-      this.theme.fg("dim", "Up/Down to move, Enter for details, Esc to close"),
-    );
-    return lines;
+    return renderListBrowser(this.theme, width, {
+      title: "SonarQube Duplications",
+      subtitle: `${this.files.length} file(s) with duplicate code`,
+      items: this.files,
+      selected: this.selected,
+      pageSize: 15,
+      emptyMessage: "No duplicate code found.",
+      footer: "Up/Down to move, Enter for details, Esc to close",
+      renderItem: (file, index, isSelected) => {
+        const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
+        const detail = `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
+        return `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", detail)}`;
+      },
+    });
   }
 }
 
