@@ -121,7 +121,27 @@ The extension also registers a `sonarqube` tool that the LLM can call with actio
 - `duplications` — list duplicated files and block details
 - `open` — open an issue with its index
 
-The tool accepts optional issue filters (`severities`, `statuses`, `types`, `rules`) so the agent can fetch just blocker/critical context.
+The tool accepts optional issue filters (`severities`, `statuses`, `types`, `rules`, `softwareQualities`, `impactSeverities`) so the agent can fetch just the most relevant issues.
+
+### Filter families
+
+SonarQube supports two filter families depending on the server mode:
+
+- **Standard Experience** (legacy): `type` (BUG, VULNERABILITY, CODE_SMELL) and `severity` (BLOCKER, CRITICAL, MAJOR, MINOR, INFO)
+- **MQR mode**: `quality` (MAINTAINABILITY, RELIABILITY, SECURITY) and `impactSeverity` (BLOCKER, HIGH, MEDIUM, LOW, INFO)
+
+Both families can be used from the `/sonarqube issues` command:
+
+```
+/sonarqube issues type:BUG
+/sonarqube issues severity:CRITICAL status:OPEN
+/sonarqube issues quality:RELIABILITY
+/sonarqube issues quality:SECURITY impactSeverity:HIGH
+```
+
+**Important:** Legacy filters and MQR filters cannot be combined in the same query. If you mix them (e.g., `type:BUG quality:SECURITY`), you'll see an error telling you to pick one family.
+
+The server mode is auto-detected via the `api/v2/clean-code-policy/mode` endpoint and cached per session.
 
 Use paths directly.
 

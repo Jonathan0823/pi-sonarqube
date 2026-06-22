@@ -1,6 +1,6 @@
 import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
 import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
-import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES } from "./types.js";
+import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -69,7 +69,7 @@ export function splitSonarArgumentContext(
   };
 }
 
-function createFilterCompletionList(): AutocompleteItem[] {
+function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem[] {
   const entries: AutocompleteItem[] = [];
   const add = (value: string, desc: string) => {
     entries.push(
@@ -77,15 +77,34 @@ function createFilterCompletionList(): AutocompleteItem[] {
       { value, label: value, description: desc },
     );
   };
+  // Legacy filters (always shown)
   for (const value of SONAR_SEVERITIES) add(value, "severity");
   for (const value of SONAR_STATUSES) add(value, "status");
   for (const value of SONAR_TYPES) add(value, "type");
-  return entries;
+
+  // MQR filters (always shown; ordered first in MQR mode)
+  const mqrEntries: AutocompleteItem[] = [];
+  for (const value of SONAR_SOFTWARE_QUALITIES) {
+    const desc = "software quality (MQR)";
+    mqrEntries.push({ value: `quality:${value}`, label: `quality:${value}`, description: desc });
+    mqrEntries.push({ value, label: value, description: desc });
+  }
+  for (const value of SONAR_IMPACT_SEVERITIES) {
+    mqrEntries.push({ value: `impactSeverity:${value}`, label: `impactSeverity:${value}`, description: "impact severity (MQR)" });
+  }
+
+  if (mode === "MQR") {
+    // MQR first, then legacy
+    return [...mqrEntries, ...entries];
+  }
+  // Legacy first (STANDARD or unknown)
+  return [...entries, ...mqrEntries];
 }
 
 export function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
+  mode?: "STANDARD" | "MQR",
 ): AutocompleteItem[] | null {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
@@ -102,13 +121,13 @@ export function sonarArgumentCompletions(
       const lineSuffix = issue.line ? `:${issue.line}` : "";
       return { value: String(index + 1), label: String(index + 1), description: `${issue.severity} ${issue.filePath}${lineSuffix}` };
     });
-    const suggestions = [...issueItems, ...createFilterCompletionList()];
+    const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
     const filtered = filterAutocompleteItems(suggestions, current);
     return filtered.length > 0 ? filtered : null;
   }
 
   if (lowerCommand === "analyze" || lowerCommand === "issues") {
-    const suggestions = createFilterCompletionList();
+    const suggestions = createFilterCompletionList(mode);
     const filtered = filterAutocompleteItems(suggestions, current);
     return filtered.length > 0 ? filtered : null;
   }
@@ -182,9 +201,15 @@ export function helpText(): string {
     "Filters:",
     "  /sonarqube issues be CRITICAL",
     "  /sonarqube issues be severity:CRITICAL status:OPEN",
+    "  /sonarqube issues be quality:RELIABILITY",
+    "  /sonarqube issues be quality:SECURITY impactSeverity:HIGH",
     "",
     "Autocomplete:",
     "  type /sonarqube and press Tab to complete the subcommand or filters",
+    "",
+    "Notes:",
+    "  Legacy filters (severity, type) and MQR filters (quality, impactSeverity)",
+    "  cannot be combined in the same command. Use one filter family per query.",
     "",
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
