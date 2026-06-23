@@ -235,14 +235,14 @@ export function formatMetricsOutput(metrics: {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 
   if (metrics.measures) {
-    if (metrics.measures.coverage !== undefined) {
+    if (metrics.measures.coverage === undefined) {
+      lines.push("Coverage: n/a");
+    } else {
       const pct = metrics.measures.coverage.toFixed(1);
       const covered = (metrics.measures.linesToCover ?? 0) - (metrics.measures.uncoveredLines ?? 0);
       const uncovered = metrics.measures.uncoveredLines ?? 0;
       const total = metrics.measures.linesToCover ?? 0;
       lines.push(`Coverage: ${pct}%  covered=${covered}  uncovered=${uncovered}  lines=${total}`);
-    } else {
-      lines.push("Coverage: n/a");
     }
 
     const density = metrics.measures.duplicatedLinesDensity.toFixed(1);
