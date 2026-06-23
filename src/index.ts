@@ -580,7 +580,7 @@ async function commandDuplications(
     await showDuplicationDrillDown(ctx, config, files, fileIndex);
     return;
   }
-  await showDuplicationListOrBrowser(ctx, config, files);
+  await showDuplicationListOrBrowser(pi, ctx, config, files);
 }
 
 async function showDuplicationDrillDown(
@@ -604,6 +604,7 @@ async function showDuplicationDrillDown(
 }
 
 async function showDuplicationListOrBrowser(
+  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   config: SonarProjectConfig,
   files: FileDuplication[],
@@ -616,7 +617,9 @@ async function showDuplicationListOrBrowser(
   if (choice == null) return;
   const file = files[choice];
   const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-  await ctx.ui.editor(`Duplications in ${file.filePath}`, await buildDuplicationPreview(config.baseDir, file.filePath, groups));
+  const preview = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
+  const result = await ctx.ui.editor(`Duplications in ${file.filePath}`, preview);
+  if (result) pi.sendUserMessage(result);
 }
 
 async function commandIssuesOrOpen(
@@ -639,7 +642,7 @@ async function commandIssuesOrOpen(
   rememberState(targetState);
 
   if (parsed.action === "issues") {
-    await commandShowIssues(ctx, targetState);
+    await commandShowIssues(pi, ctx, targetState);
     return;
   }
 
@@ -654,6 +657,7 @@ async function commandIssuesOrOpen(
 }
 
 async function commandShowIssues(
+  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   targetState: SonarAnalysisState,
 ): Promise<void> {
@@ -664,7 +668,13 @@ async function commandShowIssues(
   const choice = await showIssueBrowser(ctx, targetState);
   if (choice != null) {
     const issue = targetState.issues[choice];
-    if (issue) await openIssuePreview(ctx, targetState, issue);
+    if (issue) {
+      const preview = await buildIssuePreview(targetState.baseDir, issue);
+      const text = `${formatIssue(issue, choice + 1)}\n\n${preview}`;
+      const title = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
+      const result = await ctx.ui.editor(title, text);
+      if (result) pi.sendUserMessage(result);
+    }
   }
 }
 
