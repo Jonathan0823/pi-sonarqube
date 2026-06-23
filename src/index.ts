@@ -51,7 +51,6 @@ import {
   formatSummary,
   formatMetricsOutput,
   formatDuplicationsList,
-  formatDuplicationBlockDetail,
   formatReport,
   helpText,
   targetLabel,
@@ -62,6 +61,7 @@ import {
   startAnalysisUi,
   showIssueBrowser,
   buildIssuePreview,
+  buildDuplicationPreview,
   openIssuePreview,
   resolveTargetState,
   showDuplicationBrowser,
@@ -594,7 +594,7 @@ async function showDuplicationDrillDown(
     return;
   }
   const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-  const text = formatDuplicationBlockDetail(file.filePath, groups);
+  const text = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
   if (ctx.mode === "tui") {
     await ctx.ui.editor(`Duplications in ${file.filePath}`, text);
   } else if (ctx.hasUI) {
@@ -615,7 +615,7 @@ async function showDuplicationListOrBrowser(
   if (choice == null) return;
   const file = files[choice];
   const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-  await ctx.ui.editor(`Duplications in ${file.filePath}`, formatDuplicationBlockDetail(file.filePath, groups));
+  await ctx.ui.editor(`Duplications in ${file.filePath}`, await buildDuplicationPreview(config.baseDir, file.filePath, groups));
 }
 
 async function commandIssuesOrOpen(
@@ -701,8 +701,47 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
       details: { error: `No duplications found for ${config.projectKey}.` },
     };
   }
-  const text = formatDuplicationsList(files);
-  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, files } };
+
+  const topFiles = files.slice(0, 5);
+  const topContexts = await Promise.all(
+    topFiles.map(async (file) => {
+      try {
+        const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
+        const preview = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
+        return {
+          filePath: file.filePath,
+          duplicatedBlocks: file.duplicatedBlocks,
+          duplicatedLines: file.duplicatedLines,
+          preview,
+        };
+      } catch (error) {
+        return {
+          filePath: file.filePath,
+          duplicatedBlocks: file.duplicatedBlocks,
+          duplicatedLines: file.duplicatedLines,
+          preview: `Duplications in ${file.filePath}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
+        };
+      }
+    }),
+  );
+  const remaining = files.length - topContexts.length;
+  const content: Array<{ type: "text"; text: string }> = [
+    { type: "text", text: `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.` },
+    ...topContexts.map((item, index) => ({
+      type: "text" as const,
+      text: `#${index + 1} ${item.filePath}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
+    })),
+    ...(remaining > 0 ? [{ type: "text" as const, text: `+ ${remaining} more file(s) not shown` }] : []),
+  ];
+  return {
+    content,
+    details: {
+      projectKey: config.projectKey,
+      totalFiles: files.length,
+      topFiles: topContexts,
+      moreFiles: remaining,
+    },
+  };
 }
 
 async function toolMetrics(ctx: any, path: string | undefined): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
