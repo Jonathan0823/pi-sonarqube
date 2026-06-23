@@ -5,6 +5,7 @@ import {
   assertFiltersNotAmbiguous,
   fetchCleanCodeMode,
   fetchFileDuplications,
+  fetchIssueSeverityCounts,
   issueFilterLabel,
   parseIssueFilterToken,
 } from "../dist/api.js";
@@ -54,7 +55,7 @@ test("parses MQR filters and rejects mixed families", () => {
   );
 });
 
-test("formats metrics with both severity and quality counts", () => {
+test("formats metrics with standard severity labels", () => {
   const text = formatMetricsOutput({
     projectKey: "demo",
     issueCounts: { blocker: 1, critical: 2, major: 3, minor: 4, info: 5 },
@@ -62,8 +63,19 @@ test("formats metrics with both severity and quality counts", () => {
   });
 
   assert.match(text, /Issues:\s+BLOCKER 1/);
+  assert.match(text, /CRITICAL 2/);
   assert.match(text, /Quality:\s+MAINTAINABILITY 6/);
   assert.match(issueFilterLabel({ softwareQualities: ["SECURITY"], impactSeverities: ["HIGH"] }), /qualities=SECURITY/);
+});
+
+test("formats metrics with MQR severity labels", () => {
+  const text = formatMetricsOutput({
+    projectKey: "demo",
+    cleanCodeMode: "MQR",
+    issueCounts: { blocker: 1, critical: 2, major: 3, minor: 4, info: 5 },
+  });
+
+  assert.match(text, /Issues:\s+BLOCKER 1\s+HIGH 2\s+MEDIUM 3\s+LOW 4\s+INFO 5/);
 });
 
 test("formats coverage line when coverage data is present", () => {
@@ -98,6 +110,37 @@ test("formats coverage n/a when coverage data is absent", () => {
 
   assert.match(text, /Coverage: n\/a/);
   assert.match(text, /Duplication: 0\.0%/);
+});
+
+test("fetchIssueSeverityCounts uses impact severities in MQR mode", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  try {
+    globalThis.fetch = async (input) => {
+      requestedUrl = String(input);
+      return mockResponse({
+        facets: [
+          {
+            property: "impactSeverities",
+            values: [
+              { val: "BLOCKER", count: 1 },
+              { val: "HIGH", count: 2 },
+              { val: "MEDIUM", count: 3 },
+              { val: "LOW", count: 4 },
+              { val: "INFO", count: 5 },
+            ],
+          },
+        ],
+      });
+    };
+
+    const counts = await fetchIssueSeverityCounts("http://example.test", "token", "demo", undefined, "MQR");
+
+    assert.match(requestedUrl, /facets=impactSeverities/);
+    assert.deepEqual(counts, { blocker: 1, critical: 2, major: 3, minor: 4, info: 5 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("file duplication fetch surfaces permission errors", async () => {

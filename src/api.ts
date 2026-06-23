@@ -574,25 +574,35 @@ export async function fetchIssueSeverityCounts(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
+  mode?: "STANDARD" | "MQR",
 ): Promise<IssueSeverityCounts | undefined> {
   try {
-    const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=severities`;
+    const facetKey = mode === "MQR" ? "impactSeverities" : "severities";
+    const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=${facetKey}`;
     const result = await fetchJson<{
       facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
     }>(url, token, signal);
-    const facet = result.facets?.find((f) => f.property === "severities");
+    const facet = result.facets?.find((f) => f.property === facetKey);
     if (!facet) return undefined;
     const getCount = (severity: string): number => {
       const entry = facet.values.find((v) => v.val === severity);
       return entry?.count ?? 0;
     };
-    return {
-      blocker: getCount("BLOCKER"),
-      critical: getCount("CRITICAL"),
-      major: getCount("MAJOR"),
-      minor: getCount("MINOR"),
-      info: getCount("INFO"),
-    };
+    return mode === "MQR"
+      ? {
+          blocker: getCount("BLOCKER"),
+          critical: getCount("HIGH"),
+          major: getCount("MEDIUM"),
+          minor: getCount("LOW"),
+          info: getCount("INFO"),
+        }
+      : {
+          blocker: getCount("BLOCKER"),
+          critical: getCount("CRITICAL"),
+          major: getCount("MAJOR"),
+          minor: getCount("MINOR"),
+          info: getCount("INFO"),
+        };
   } catch {
     return undefined;
   }

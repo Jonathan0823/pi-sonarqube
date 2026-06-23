@@ -231,6 +231,7 @@ export function formatMetricsOutput(metrics: {
   measures?: SonarDuplicationMeasures;
   issueCounts?: IssueSeverityCounts;
   issueQualityCounts?: IssueQualityCounts;
+  cleanCodeMode?: "STANDARD" | "MQR";
 }): string {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 
@@ -254,13 +255,21 @@ export function formatMetricsOutput(metrics: {
   }
 
   if (metrics.issueCounts) {
-    const counts = [
-      `BLOCKER ${metrics.issueCounts.blocker}`,
-      `CRITICAL ${metrics.issueCounts.critical}`,
-      `MAJOR ${metrics.issueCounts.major}`,
-      `MINOR ${metrics.issueCounts.minor}`,
-      `INFO ${metrics.issueCounts.info}`,
-    ];
+    const counts = metrics.cleanCodeMode === "MQR"
+      ? [
+          `BLOCKER ${metrics.issueCounts.blocker}`,
+          `HIGH ${metrics.issueCounts.critical}`,
+          `MEDIUM ${metrics.issueCounts.major}`,
+          `LOW ${metrics.issueCounts.minor}`,
+          `INFO ${metrics.issueCounts.info}`,
+        ]
+      : [
+          `BLOCKER ${metrics.issueCounts.blocker}`,
+          `CRITICAL ${metrics.issueCounts.critical}`,
+          `MAJOR ${metrics.issueCounts.major}`,
+          `MINOR ${metrics.issueCounts.minor}`,
+          `INFO ${metrics.issueCounts.info}`,
+        ];
     lines.push(`Issues:  ${counts.join("  ")}`);
   }
 

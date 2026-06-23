@@ -533,9 +533,10 @@ async function commandMetrics(
   targetInput?: string,
 ): Promise<void> {
   const config = await resolveConfig(ctx, targetInput);
+  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
   const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
-    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal, cleanCodeMode),
     fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
   ]);
   if (!measures && !issueCounts && !qualityCounts) {
@@ -544,7 +545,7 @@ async function commandMetrics(
     }
     return;
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts });
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode });
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
   }
@@ -754,9 +755,10 @@ async function toolMetrics(ctx: any, path: string | undefined): Promise<{ conten
       details: { error: "Project not configured." },
     };
   }
+  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
   const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
-    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal, cleanCodeMode),
     fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
   ]);
   if (!measures && !issueCounts && !qualityCounts) {
@@ -765,8 +767,8 @@ async function toolMetrics(ctx: any, path: string | undefined): Promise<{ conten
       details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
     };
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts });
-  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts } };
+  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode });
+  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode } };
 }
 
 // ── Re-exports for public API ───────────────────────────────────────────────
