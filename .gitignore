@@ -3,3 +3,4 @@ dist/
 *.tgz
 .pi/
 .scannerwork/
+tasks/
