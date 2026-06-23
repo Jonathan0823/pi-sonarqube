@@ -221,10 +221,13 @@ function severitySortRank(severity: string): number {
     case "BLOCKER":
       return 0;
     case "CRITICAL":
+    case "HIGH":
       return 1;
     case "MAJOR":
+    case "MEDIUM":
       return 2;
     case "MINOR":
+    case "LOW":
       return 3;
     case "INFO":
       return 4;
