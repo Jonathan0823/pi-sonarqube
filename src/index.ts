@@ -580,7 +580,7 @@ async function commandDuplications(
     await showDuplicationDrillDown(ctx, config, files, fileIndex);
     return;
   }
-  await showDuplicationListOrBrowser(pi, ctx, config, files);
+  await showDuplicationListOrBrowser(ctx, config, files);
 }
 
 async function showDuplicationDrillDown(
@@ -604,7 +604,6 @@ async function showDuplicationDrillDown(
 }
 
 async function showDuplicationListOrBrowser(
-  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   config: SonarProjectConfig,
   files: FileDuplication[],
@@ -617,9 +616,16 @@ async function showDuplicationListOrBrowser(
   if (choice == null) return;
   const file = files[choice];
   const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-  const preview = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
-  const result = await ctx.ui.editor(`Duplications in ${file.filePath}`, preview);
-  if (result) pi.sendUserMessage(result);
+  const lines = [`Duplications in ${file.filePath}`];
+  for (const [i, group] of groups.entries()) {
+    lines.push("", `Block ${i + 1}:`);
+    for (const block of group.blocks) {
+      const end = block.from + block.size - 1;
+      lines.push(`  ${block.filePath}:${block.from}-${end}`);
+    }
+  }
+  ctx.ui.setEditorText(lines.join("\n"));
+  ctx.ui.notify("Duplication loaded into editor — press Enter to send", "info");
 }
 
 async function commandIssuesOrOpen(
@@ -642,7 +648,7 @@ async function commandIssuesOrOpen(
   rememberState(targetState);
 
   if (parsed.action === "issues") {
-    await commandShowIssues(pi, ctx, targetState);
+    await commandShowIssues(ctx, targetState);
     return;
   }
 
@@ -657,7 +663,6 @@ async function commandIssuesOrOpen(
 }
 
 async function commandShowIssues(
-  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   targetState: SonarAnalysisState,
 ): Promise<void> {
@@ -669,11 +674,10 @@ async function commandShowIssues(
   if (choice != null) {
     const issue = targetState.issues[choice];
     if (issue) {
-      const preview = await buildIssuePreview(targetState.baseDir, issue);
-      const text = `${formatIssue(issue, choice + 1)}\n\n${preview}`;
-      const title = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
-      const result = await ctx.ui.editor(title, text);
-      if (result) pi.sendUserMessage(result);
+      const line = issue.line ? `:${issue.line}` : "";
+      const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
+      ctx.ui.setEditorText(`${issue.severity} ${issue.filePath}${line} — ${rule} — ${issue.message}`);
+      ctx.ui.notify("Issue loaded into editor — press Enter to send", "info");
     }
   }
 }
