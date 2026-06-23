@@ -22,6 +22,7 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test",
+    "test:coverage": "npm run build && c8 --all --src src -r text -r lcovonly node --test",
     "prepack": "npm run build",
     "pack": "npm pack"
   },
@@ -48,6 +49,7 @@
     "typebox": "^1.1.38"
   },
   "devDependencies": {
+    "c8": "^11.0.0",
     "typescript": "^5.7.0"
   },
   "pi": {

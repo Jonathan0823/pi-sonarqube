@@ -2,7 +2,7 @@ import type { Theme, ExtensionContext, ExtensionCommandContext } from "@earendil
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions, FileDuplication } from "./types.js";
+import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions, FileDuplication, DuplicationBlockGroup } from "./types.js";
 import { issueFilterLabel, fetchIssues, createAnalysisState, normalizeIssueFilters, fetchCleanCodeMode } from "./api.js";
 import { resolveConfig, resolveTarget } from "./config.js";
 
@@ -22,6 +22,54 @@ export async function buildIssuePreview(baseDir: string, issue: SonarIssue, radi
     const marker = line === target ? ">" : " ";
     const num = String(line).padStart(width, " ");
     rendered.push(`${marker} ${num} | ${lines[line - 1] ?? ""}`);
+  }
+  return rendered.join("\n");
+}
+
+export async function buildDuplicationPreview(
+  baseDir: string,
+  filePath: string,
+  groups: DuplicationBlockGroup[],
+): Promise<string> {
+  const cache = new Map<string, string>();
+  const loadLines = async (relativePath: string): Promise<string[]> => {
+    const absolutePath = resolve(baseDir, relativePath);
+    const cached = cache.get(absolutePath);
+    if (cached !== undefined) return cached.split(/\r?\n/);
+    const content = await readFile(absolutePath, "utf8");
+    cache.set(absolutePath, content);
+    return content.split(/\r?\n/);
+  };
+  const renderRange = (lines: string[], from: number, size: number): string[] => {
+    const start = Math.max(1, from);
+    const end = Math.min(lines.length, from + size - 1);
+    const width = String(end).length;
+    const rendered: string[] = [];
+    for (let line = start; line <= end; line++) {
+      const num = String(line).padStart(width, " ");
+      rendered.push(`${num} | ${lines[line - 1] ?? ""}`);
+    }
+    return rendered;
+  };
+
+  const rendered: string[] = [`Duplications in ${filePath}`];
+  for (const [groupIndex, group] of groups.entries()) {
+    rendered.push("", `Block ${groupIndex + 1}:`);
+    for (const block of group.blocks) {
+      try {
+        const lines = await loadLines(block.filePath);
+        const end = block.from + block.size - 1;
+        rendered.push(`  ${block.filePath}:${block.from}-${end}`);
+        for (const line of renderRange(lines, block.from, block.size)) {
+          rendered.push(`  ${line}`);
+        }
+      } catch {
+        rendered.push(
+          `  ${block.filePath}:${block.from}-${block.from + block.size - 1}`,
+          "  <unable to read duplicated lines>",
+        );
+      }
+    }
   }
   return rendered.join("\n");
 }

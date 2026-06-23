@@ -542,7 +542,7 @@ export async function fetchDuplicationMeasures(
   signal?: AbortSignal,
 ): Promise<SonarDuplicationMeasures | undefined> {
   try {
-    const url = `${serverUrl}/api/measures/component?component=${encodeURIComponent(projectKey)}&metricKeys=duplicated_lines_density,duplicated_lines,duplicated_blocks,duplicated_files`;
+    const url = `${serverUrl}/api/measures/component?component=${encodeURIComponent(projectKey)}&metricKeys=coverage,lines_to_cover,uncovered_lines,duplicated_lines_density,duplicated_lines,duplicated_blocks,duplicated_files`;
     const result = await fetchJson<{
       component: { measures: Array<{ metric: string; value: string }> };
     }>(url, token, signal);
@@ -551,11 +551,15 @@ export async function fetchDuplicationMeasures(
       const m = measures.find((m) => m.metric === key);
       return m ? Number.parseFloat(m.value) : 0;
     };
+    const hasMetric = (key: string): boolean => measures.some((m) => m.metric === key);
     return {
       duplicatedLinesDensity: getValue("duplicated_lines_density"),
       duplicatedLines: getValue("duplicated_lines"),
       duplicatedBlocks: getValue("duplicated_blocks"),
       duplicatedFiles: getValue("duplicated_files"),
+      coverage: hasMetric("coverage") ? getValue("coverage") : undefined,
+      linesToCover: hasMetric("lines_to_cover") ? getValue("lines_to_cover") : undefined,
+      uncoveredLines: hasMetric("uncovered_lines") ? getValue("uncovered_lines") : undefined,
     };
   } catch {
     return undefined;

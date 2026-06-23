@@ -3,3 +3,5 @@ dist/
 *.tgz
 .pi/
 .scannerwork/
+coverage/
+tasks/

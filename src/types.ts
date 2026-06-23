@@ -18,6 +18,9 @@ export interface SonarDuplicationMeasures {
   duplicatedLines: number;
   duplicatedBlocks: number;
   duplicatedFiles: number;
+  coverage?: number;
+  linesToCover?: number;
+  uncoveredLines?: number;
 }
 
 export interface IssueSeverityCounts {
