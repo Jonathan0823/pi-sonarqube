@@ -66,6 +66,40 @@ test("formats metrics with both severity and quality counts", () => {
   assert.match(issueFilterLabel({ softwareQualities: ["SECURITY"], impactSeverities: ["HIGH"] }), /qualities=SECURITY/);
 });
 
+test("formats coverage line when coverage data is present", () => {
+  const text = formatMetricsOutput({
+    projectKey: "demo",
+    measures: {
+      duplicatedLinesDensity: 5.2,
+      duplicatedLines: 10,
+      duplicatedBlocks: 3,
+      duplicatedFiles: 2,
+      coverage: 15.5,
+      linesToCover: 200,
+      uncoveredLines: 169,
+    },
+  });
+
+  assert.match(text, /Coverage: 15\.5%  covered=31  uncovered=169  lines=200/);
+  assert.match(text, /Duplication: 5\.2%/);
+  assert.match(text, /blocks=3/);
+});
+
+test("formats coverage n/a when coverage data is absent", () => {
+  const text = formatMetricsOutput({
+    projectKey: "demo",
+    measures: {
+      duplicatedLinesDensity: 0,
+      duplicatedLines: 0,
+      duplicatedBlocks: 0,
+      duplicatedFiles: 0,
+    },
+  });
+
+  assert.match(text, /Coverage: n\/a/);
+  assert.match(text, /Duplication: 0\.0%/);
+});
+
 test("file duplication fetch surfaces permission errors", async () => {
   const originalFetch = globalThis.fetch;
   try {
