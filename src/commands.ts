@@ -142,10 +142,13 @@ function createFilterCompletionList(
     { value: "rule:", label: "rule:", description: "rule key" },
     { value: "rules:", label: "rules:", description: "rule key" },
   ];
+  const scopeItems = [
+    { value: "in:", label: "in:", description: "path or dir scope (e.g. in:src/api.ts or in:src/)" },
+  ];
 
   return mode === "MQR"
-    ? [...ruleItems, ...buildItems(mqrGroups), ...buildItems(legacyGroups)]
-    : [...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
+    ? [...scopeItems, ...ruleItems, ...buildItems(mqrGroups), ...buildItems(legacyGroups)]
+    : [...scopeItems, ...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
 export function sonarArgumentCompletions(
@@ -278,6 +281,8 @@ export function helpText(): string {
     "  /sonarqube issues be CRITICAL",
     "  /sonarqube issues be severity:CRITICAL status:OPEN",
     "  /sonarqube issues be rule:S1192",
+    "  /sonarqube issues in:src/api.ts",
+    "  /sonarqube issues in:src/",
     "  /sonarqube issues be quality:RELIABILITY",
     "  /sonarqube issues be quality:SECURITY impactSeverity:HIGH",
     "",

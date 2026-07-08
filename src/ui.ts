@@ -514,6 +514,7 @@ export async function loadProjectIssuesFromApi(
     config.projectKey,
     ctx.signal,
     normalizedFilters,
+    config.baseDir,
   );
   const cleanCodeMode = await fetchCleanCodeMode(
     config.serverUrl,

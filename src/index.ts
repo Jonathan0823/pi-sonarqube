@@ -183,6 +183,7 @@ async function analyzeProject(
       config.projectKey,
       ctx.signal,
       normalizedFilters,
+      config.baseDir,
     );
 
     analysisUi.setPhase("Fetching metrics...");

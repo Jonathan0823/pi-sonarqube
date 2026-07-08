@@ -86,6 +86,8 @@ export interface SonarIssueFetchOptions {
   rules?: string[];
   softwareQualities?: string[];
   impactSeverities?: string[];
+  pathScope?: string;
+  componentKeys?: string[];
 }
 
 export interface SonarInitConfig {

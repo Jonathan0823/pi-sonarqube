@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import type {
   SonarIssue,
   SonarAnalysisState,
@@ -114,13 +114,17 @@ export function normalizeIssueFilters(
     rules: normalizeIssueList(filters?.rules),
     softwareQualities: normalizeIssueList(filters?.softwareQualities, true),
     impactSeverities: normalizeIssueList(filters?.impactSeverities, true),
+    pathScope: filters?.pathScope,
+    componentKeys: filters?.componentKeys,
   };
   return normalized.severities ||
     normalized.statuses ||
     normalized.types ||
     normalized.rules ||
     normalized.softwareQualities ||
-    normalized.impactSeverities
+    normalized.impactSeverities ||
+    normalized.pathScope ||
+    normalized.componentKeys?.length
     ? normalized
     : undefined;
 }
@@ -178,6 +182,9 @@ export function parseIssueFilterToken(
       case "impactseverity":
       case "impactseverities":
         return { impactSeverities: values.map((v) => v.toUpperCase()) };
+      case "in":
+      case "path":
+        return { pathScope: values[0] };
       default:
         return undefined;
     }
@@ -262,6 +269,7 @@ function mergeFilters(
         ...(merged.impactSeverities ?? []),
         ...filter.impactSeverities,
       ];
+    if (filter.pathScope) merged.pathScope = filter.pathScope;
   }
   return normalizeIssueFilters(merged);
 }
@@ -279,7 +287,21 @@ export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
     parts.push(`qualities=${filters.softwareQualities.join(",")}`);
   if (filters.impactSeverities?.length)
     parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
+  if (filters.pathScope) parts.push(`in:${filters.pathScope}`);
   return parts.join(" • ");
+}
+
+export function resolvePathScope(
+  baseDir: string,
+  projectKey: string,
+  pathScope: string,
+): string {
+  const raw = pathScope.replace(/^@/, "");
+  const absPath = resolve(baseDir, raw);
+  const relPath = relative(baseDir, absPath);
+  if (relPath === "" || relPath === ".") return projectKey;
+  const cleanRel = relPath.replace(/[\\/]+$/, "");
+  return `${projectKey}:${cleanRel}`;
 }
 
 function severitySortRank(severity: string): number {
@@ -505,6 +527,11 @@ function buildIssueSearchUrl(
       "impactSeverities",
       filters.impactSeverities.join(","),
     );
+  if (filters?.componentKeys?.length)
+    url.searchParams.set(
+      "componentKeys",
+      filters.componentKeys.join(","),
+    );
   return url.toString();
 }
 
@@ -574,9 +601,19 @@ export async function fetchIssues(
   projectKey: string,
   signal?: AbortSignal,
   filters?: SonarIssueFetchOptions,
+  baseDir?: string,
 ): Promise<SonarIssue[]> {
   assertFiltersNotAmbiguous(filters);
   const normalizedFilters = normalizeIssueFilters(filters);
+
+  if (normalizedFilters?.pathScope && baseDir) {
+    const componentKey = resolvePathScope(
+      baseDir,
+      projectKey,
+      normalizedFilters.pathScope,
+    );
+    normalizedFilters.componentKeys = [componentKey];
+  }
   const issues: SonarIssue[] = [];
   const ruleNames = new Map<string, string | undefined>();
   let page = 1;
