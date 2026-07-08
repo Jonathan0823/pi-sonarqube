@@ -435,11 +435,13 @@ export class DuplicationBrowser extends SearchableListBrowser<FileDuplication> {
     files: FileDuplication[],
     theme: Theme,
     done: (result: number | null) => void,
+    scopeLabel?: string,
   ) {
+    const scopeSuffix = scopeLabel ? ` • ${scopeLabel}` : "";
     super(files, theme, done, {
       title: "SonarQube Duplications",
       subtitle: (_query, totalCount, filteredCount) =>
-        `${totalCount} file(s) with duplicate code • ${filteredCount} match(es)`,
+        `${totalCount} file(s) with duplicate code${scopeSuffix} • ${filteredCount} match(es)`,
       searchHint: "Search duplications by file path, duplicated lines, blocks, or density",
       emptyMessage: "No matching duplicated files found.",
       footer: "Up/Down to move, Enter for details, Esc to close",
@@ -465,10 +467,12 @@ export class DuplicationBrowser extends SearchableListBrowser<FileDuplication> {
 export async function showDuplicationBrowser(
   ctx: ExtensionCommandContext,
   files: FileDuplication[],
+  scopeLabel?: string,
 ): Promise<number | null> {
   if (ctx.mode !== "tui" || files.length === 0) return null;
   return await ctx.ui.custom<number | null>(
-    (_tui, theme, _kb, done) => new DuplicationBrowser(files, theme, done),
+    (_tui, theme, _kb, done) =>
+      new DuplicationBrowser(files, theme, done, scopeLabel),
   );
 }
 

@@ -802,7 +802,7 @@ async function commandDuplications(
     await showDuplicationDrillDown(ctx, config, files, fileIndex);
     return;
   }
-  await showDuplicationListOrBrowser(ctx, config, files);
+  await showDuplicationListOrBrowser(ctx, config, files, filters);
 }
 
 async function showDuplicationDrillDown(
@@ -839,12 +839,14 @@ async function showDuplicationListOrBrowser(
   ctx: ExtensionCommandContext,
   config: SonarProjectConfig,
   files: FileDuplication[],
+  filters?: SonarIssueFetchOptions,
 ): Promise<void> {
   if (ctx.mode !== "tui") {
     ctx.ui.notify(formatDuplicationsList(files), "info");
     return;
   }
-  const choice = await showDuplicationBrowser(ctx, files);
+  const scopeLabel = filters?.pathScope ? issueFilterLabel(filters) : undefined;
+  const choice = await showDuplicationBrowser(ctx, files, scopeLabel);
   if (choice == null) return;
   const file = files[choice];
   const groups = await fetchFileDuplicationBlocks(
