@@ -138,10 +138,14 @@ function createFilterCompletionList(
     ["quality", SONAR_SOFTWARE_QUALITIES, "software quality (MQR)", true],
     ["impactSeverity", SONAR_IMPACT_SEVERITIES, "impact severity (MQR)", false],
   ] as const;
+  const ruleItems = [
+    { value: "rule:", label: "rule:", description: "rule key" },
+    { value: "rules:", label: "rules:", description: "rule key" },
+  ];
 
   return mode === "MQR"
-    ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)]
-    : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
+    ? [...ruleItems, ...buildItems(mqrGroups), ...buildItems(legacyGroups)]
+    : [...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
 export function sonarArgumentCompletions(
@@ -273,6 +277,7 @@ export function helpText(): string {
     "Filters:",
     "  /sonarqube issues be CRITICAL",
     "  /sonarqube issues be severity:CRITICAL status:OPEN",
+    "  /sonarqube issues be rule:S1192",
     "  /sonarqube issues be quality:RELIABILITY",
     "  /sonarqube issues be quality:SECURITY impactSeverity:HIGH",
     "",
@@ -286,6 +291,7 @@ export function helpText(): string {
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
     "  use project paths directly (no alias needed)",
+    "  issue and duplication browsers search file, rule, severity, status, message, and stats",
   ].join("\n");
 }
 
