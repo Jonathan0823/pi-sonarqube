@@ -18,6 +18,8 @@ import {
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
 } from "./types.js";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -151,10 +153,46 @@ function createFilterCompletionList(
     : [...scopeItems, ...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
+function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
+  const lastSlash = prefix.lastIndexOf("/");
+  const dirPrefix = lastSlash >= 0 ? prefix.slice(0, lastSlash + 1) : "";
+  const filePrefix = lastSlash >= 0 ? prefix.slice(lastSlash + 1) : prefix;
+  const searchDir = dirPrefix ? resolve(baseDir, dirPrefix) : baseDir;
+
+  try {
+    const entries = readdirSync(searchDir, { withFileTypes: true });
+    const items: AutocompleteItem[] = [];
+    const lowerPrefix = filePrefix.toLowerCase();
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") && !filePrefix) continue;
+      if (!entry.name.toLowerCase().startsWith(lowerPrefix)) continue;
+      const suffix = entry.isDirectory() ? "/" : "";
+      const relativePath = dirPrefix + entry.name + suffix;
+      items.push({
+        value: `in:${relativePath}`,
+        label: `in:${relativePath}`,
+        description: entry.isDirectory() ? "directory" : "file",
+      });
+    }
+
+    items.sort((a, b) => {
+      const aDir = a.description === "directory" ? 0 : 1;
+      const bDir = b.description === "directory" ? 0 : 1;
+      return aDir - bDir || a.label.localeCompare(b.label);
+    });
+
+    return items.length > 0 ? items.slice(0, 50) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
   mode?: "STANDARD" | "MQR",
+  cwd?: string,
 ): AutocompleteItem[] | null {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
@@ -189,6 +227,9 @@ export function sonarArgumentCompletions(
   }
 
   if (lowerCommand === "analyze" || lowerCommand === "issues") {
+    if (current.startsWith("in:") && cwd) {
+      return getInPathCompletions(current.slice(3), cwd);
+    }
     const suggestions = createFilterCompletionList(mode);
     const filtered = filterAutocompleteItems(suggestions, current);
     return filtered.length > 0 ? filtered : null;

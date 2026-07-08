@@ -621,6 +621,7 @@ export default function sonarqube(pi: ExtensionAPI) {
         argumentPrefix,
         latestState?.issues,
         latestState?.cleanCodeMode,
+        process.cwd(),
       ),
     handler: async (args, ctx) => {
       try {
