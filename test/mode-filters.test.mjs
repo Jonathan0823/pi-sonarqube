@@ -64,8 +64,8 @@ test("parses MQR filters and rejects mixed families", () => {
   );
 });
 
-test("issue autocomplete includes rule filter keys", () => {
-  const items = sonarArgumentCompletions("issues ru") ?? [];
+test("issue autocomplete includes rule filter keys", async () => {
+  const items = (await sonarArgumentCompletions("issues ru")) ?? [];
   const values = items.map((item) => item.value);
 
   assert.ok(values.includes("rule:"));

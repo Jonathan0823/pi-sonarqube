@@ -646,6 +646,62 @@ export async function fetchIssues(
   return issues;
 }
 
+// ── Rule autocomplete helpers ───────────────────────────────────────────
+
+export async function fetchProjectProfiles(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<Array<{key: string; language: string; name: string}>> {
+  try {
+    const result = await fetchJson<{
+      profiles: Array<{key?: string; language?: string; name?: string}>;
+    }>(
+      `${serverUrl}/api/qualityprofiles/search?project=${encodeURIComponent(projectKey)}`,
+      token,
+      signal,
+    );
+    return (result.profiles ?? []).map(p => ({
+      key: p.key ?? '',
+      language: p.language ?? '',
+      name: p.name ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchRuleSearch(
+  serverUrl: string,
+  token: string | undefined,
+  query: string,
+  languages?: string[],
+  signal?: AbortSignal,
+): Promise<Array<{key: string; name?: string}>> {
+  try {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    params.set("ps", "20");
+    params.set("p", "1");
+    if (languages?.length) params.set("languages", languages.join(","));
+
+    const result = await fetchJson<{
+      rules: Array<{key?: string; name?: string}>;
+    }>(
+      `${serverUrl}/api/rules/search?${params.toString()}`,
+      token,
+      signal,
+    );
+    return (result.rules ?? []).map(r => ({
+      key: r.key ?? '',
+      name: r.name,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchRuleName(
   serverUrl: string,
   token: string | undefined,

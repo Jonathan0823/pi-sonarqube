@@ -22,7 +22,12 @@ import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { looksLikePath } from "./config.js";
-import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
+import {
+  parseSonarIssueArgs,
+  issueFilterLabel,
+  fetchProjectProfiles,
+  fetchRuleSearch,
+} from "./api.js";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -146,15 +151,32 @@ function createFilterCompletionList(
     { value: "rules:", label: "rules:", description: "rule key" },
   ];
   const scopeItems = [
-    { value: "in:", label: "in:", description: "path or dir scope (e.g. in:src/api.ts or in:src/)" },
+    {
+      value: "in:",
+      label: "in:",
+      description: "path or dir scope (e.g. in:src/api.ts or in:src/)",
+    },
   ];
 
   return mode === "MQR"
-    ? [...scopeItems, ...ruleItems, ...buildItems(mqrGroups), ...buildItems(legacyGroups)]
-    : [...scopeItems, ...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
+    ? [
+        ...scopeItems,
+        ...ruleItems,
+        ...buildItems(mqrGroups),
+        ...buildItems(legacyGroups),
+      ]
+    : [
+        ...scopeItems,
+        ...ruleItems,
+        ...buildItems(legacyGroups),
+        ...buildItems(mqrGroups),
+      ];
 }
 
-function listDirCompletions(dirPath: string, baseDir: string): AutocompleteItem[] | null {
+function listDirCompletions(
+  dirPath: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });
     const items: AutocompleteItem[] = [];
@@ -267,7 +289,33 @@ function addAncestorDirMatches(
   }
 }
 
-function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
+async function fetchRuleAutocompleteCompletions(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  query: string,
+): Promise<AutocompleteItem[] | null> {
+  try {
+    const profiles = await fetchProjectProfiles(serverUrl, token, projectKey);
+    const languages = [
+      ...new Set(profiles.map((p) => p.language).filter(Boolean)),
+    ];
+    const rules = await fetchRuleSearch(serverUrl, token, query, languages);
+    if (rules.length === 0) return null;
+    return rules.map((r) => ({
+      value: `rule:${r.key}`,
+      label: r.key,
+      description: r.name ?? "",
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function getInPathCompletions(
+  prefix: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
   // Directory browsing: show contents when prefix ends with /
   if (prefix.endsWith("/")) {
     return listDirCompletions(resolve(baseDir, prefix), baseDir);
@@ -320,12 +368,69 @@ function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem
   return listDirCompletions(baseDir, baseDir);
 }
 
-export function sonarArgumentCompletions(
+function getOpenCompletions(
+  issues: SonarIssue[] | undefined,
+  mode: "STANDARD" | "MQR" | undefined,
+  current: string,
+): AutocompleteItem[] | null {
+  const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
+    const lineSuffix = issue.line ? `:${issue.line}` : "";
+    return {
+      value: String(index + 1),
+      label: String(index + 1),
+      description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
+    };
+  });
+  const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
+  const filtered = filterAutocompleteItems(suggestions, current);
+  return filtered.length > 0 ? filtered : null;
+}
+
+async function getFilterCompletions(
+  current: string,
+  mode: "STANDARD" | "MQR" | undefined,
+  cwd: string | undefined,
+  serverUrl: string | undefined,
+  token: string | undefined,
+  projectKey: string | undefined,
+): Promise<AutocompleteItem[] | null> {
+  if (current.startsWith("in:") && cwd) {
+    return getInPathCompletions(current.slice(3), cwd);
+  }
+  if (
+    (current.startsWith("rule:") || current.startsWith("rules:")) &&
+    serverUrl &&
+    projectKey
+  ) {
+    const query = current.split(":").slice(1).join(":");
+    const ruleItems = await fetchRuleAutocompleteCompletions(
+      serverUrl,
+      token,
+      projectKey,
+      query,
+    );
+    const staticSuggestions = createFilterCompletionList(mode);
+    const filtered = filterAutocompleteItems(staticSuggestions, current);
+    const combined = [
+      ...(filtered.length > 0 ? filtered : []),
+      ...(ruleItems ?? []),
+    ];
+    return combined.length > 0 ? combined : null;
+  }
+  const suggestions = createFilterCompletionList(mode);
+  const filtered = filterAutocompleteItems(suggestions, current);
+  return filtered.length > 0 ? filtered : null;
+}
+
+export async function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
   mode?: "STANDARD" | "MQR",
   cwd?: string,
-): AutocompleteItem[] | null {
+  serverUrl?: string,
+  token?: string,
+  projectKey?: string,
+): Promise<AutocompleteItem[] | null> {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
   const commandMatches = SONAR_COMMANDS.filter((item) =>
@@ -345,26 +450,18 @@ export function sonarArgumentCompletions(
   }
 
   if (lowerCommand === "open") {
-    const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
-      const lineSuffix = issue.line ? `:${issue.line}` : "";
-      return {
-        value: String(index + 1),
-        label: String(index + 1),
-        description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
-      };
-    });
-    const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
-    const filtered = filterAutocompleteItems(suggestions, current);
-    return filtered.length > 0 ? filtered : null;
+    return getOpenCompletions(issues, mode, current);
   }
 
   if (lowerCommand === "analyze" || lowerCommand === "issues") {
-    if (current.startsWith("in:") && cwd) {
-      return getInPathCompletions(current.slice(3), cwd);
-    }
-    const suggestions = createFilterCompletionList(mode);
-    const filtered = filterAutocompleteItems(suggestions, current);
-    return filtered.length > 0 ? filtered : null;
+    return getFilterCompletions(
+      current,
+      mode,
+      cwd,
+      serverUrl,
+      token,
+      projectKey,
+    );
   }
 
   if (
