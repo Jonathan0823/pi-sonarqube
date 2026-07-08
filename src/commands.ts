@@ -219,20 +219,7 @@ function fuzzyWithCmd(
 
     // For rg (no dirs output), extract ancestor dirs that match
     if (!isDir) {
-      const segs = entry.split("/");
-      for (let i = 0; i < segs.length - 1; i++) {
-        if (matched.length >= 50) break;
-        const dirPath = segs.slice(0, i + 1).join("/") + "/";
-        if (seen.has(dirPath)) continue;
-        seen.add(dirPath);
-        if (segs[i].toLowerCase().includes(lowerPrefix)) {
-          matched.push({
-            value: `in:${dirPath}`,
-            label: `in:${dirPath}`,
-            description: "directory",
-          });
-        }
-      }
+      addAncestorDirMatches(entry, lowerPrefix, matched, seen);
     }
   }
 
@@ -244,6 +231,32 @@ function fuzzyWithCmd(
   });
 
   return matched;
+}
+
+/**
+ * For non-directory entries, extract ancestor directories that match the prefix
+ * and add them as autocomplete suggestions.
+ */
+function addAncestorDirMatches(
+  entry: string,
+  lowerPrefix: string,
+  matched: AutocompleteItem[],
+  seen: Set<string>,
+): void {
+  const segs = entry.split("/");
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (matched.length >= 50) break;
+    const dirPath = segs.slice(0, i + 1).join("/") + "/";
+    if (seen.has(dirPath)) continue;
+    seen.add(dirPath);
+    if (segs[i].toLowerCase().includes(lowerPrefix)) {
+      matched.push({
+        value: `in:${dirPath}`,
+        label: `in:${dirPath}`,
+        description: "directory",
+      });
+    }
+  }
 }
 
 function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {

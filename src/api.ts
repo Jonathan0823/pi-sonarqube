@@ -245,30 +245,25 @@ export function parseSonarIssueArgs(
   return { targetInput, issueIndex, filters: mergeFilters(...filters) };
 }
 
+function mergeFilterField<T>(
+  merged: T[] | undefined,
+  incoming?: T[],
+): T[] | undefined {
+  return incoming?.length ? [...(merged ?? []), ...incoming] : merged;
+}
+
 function mergeFilters(
   ...filters: Array<Partial<SonarIssueFetchOptions> | undefined>
 ): SonarIssueFetchOptions | undefined {
   const merged: SonarIssueFetchOptions = {};
   for (const filter of filters) {
     if (!filter) continue;
-    if (filter.severities?.length)
-      merged.severities = [...(merged.severities ?? []), ...filter.severities];
-    if (filter.statuses?.length)
-      merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
-    if (filter.types?.length)
-      merged.types = [...(merged.types ?? []), ...filter.types];
-    if (filter.rules?.length)
-      merged.rules = [...(merged.rules ?? []), ...filter.rules];
-    if (filter.softwareQualities?.length)
-      merged.softwareQualities = [
-        ...(merged.softwareQualities ?? []),
-        ...filter.softwareQualities,
-      ];
-    if (filter.impactSeverities?.length)
-      merged.impactSeverities = [
-        ...(merged.impactSeverities ?? []),
-        ...filter.impactSeverities,
-      ];
+    merged.severities = mergeFilterField(merged.severities, filter.severities);
+    merged.statuses = mergeFilterField(merged.statuses, filter.statuses);
+    merged.types = mergeFilterField(merged.types, filter.types);
+    merged.rules = mergeFilterField(merged.rules, filter.rules);
+    merged.softwareQualities = mergeFilterField(merged.softwareQualities, filter.softwareQualities);
+    merged.impactSeverities = mergeFilterField(merged.impactSeverities, filter.impactSeverities);
     if (filter.pathScope) merged.pathScope = filter.pathScope;
   }
   return normalizeIssueFilters(merged);
