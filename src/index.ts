@@ -1,4 +1,9 @@
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -68,22 +73,48 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum(["analyze", "issues", "open", "metrics", "duplications"] as const),
-  path: Type.Optional(Type.String({ description: "Target alias or project directory to analyze or inspect" })),
-  issueIndex: Type.Optional(Type.Number({ description: "1-based issue index to open" })),
+  action: StringEnum([
+    "analyze",
+    "issues",
+    "open",
+    "metrics",
+    "duplications",
+  ] as const),
+  path: Type.Optional(
+    Type.String({
+      description: "Target alias or project directory to analyze or inspect",
+    }),
+  ),
+  issueIndex: Type.Optional(
+    Type.Number({ description: "1-based issue index to open" }),
+  ),
   severities: Type.Optional(
-    Type.Array(Type.String({ description: "Issue severity to fetch (e.g. CRITICAL)" })),
+    Type.Array(
+      Type.String({ description: "Issue severity to fetch (e.g. CRITICAL)" }),
+    ),
   ),
   statuses: Type.Optional(
-    Type.Array(Type.String({ description: "Issue status to fetch (e.g. OPEN)" })),
+    Type.Array(
+      Type.String({ description: "Issue status to fetch (e.g. OPEN)" }),
+    ),
   ),
-  types: Type.Optional(Type.Array(Type.String({ description: "Issue type to fetch (e.g. BUG)" }))),
-  rules: Type.Optional(Type.Array(Type.String({ description: "Rule keys to fetch" }))),
+  types: Type.Optional(
+    Type.Array(Type.String({ description: "Issue type to fetch (e.g. BUG)" })),
+  ),
+  rules: Type.Optional(
+    Type.Array(Type.String({ description: "Rule keys to fetch" })),
+  ),
   softwareQualities: Type.Optional(
-    Type.Array(Type.String({ description: "Software quality to fetch (e.g. MAINTAINABILITY)" })),
+    Type.Array(
+      Type.String({
+        description: "Software quality to fetch (e.g. MAINTAINABILITY)",
+      }),
+    ),
   ),
   impactSeverities: Type.Optional(
-    Type.Array(Type.String({ description: "Impact severity to fetch (e.g. HIGH)" })),
+    Type.Array(
+      Type.String({ description: "Impact severity to fetch (e.g. HIGH)" }),
+    ),
   ),
 });
 
@@ -97,7 +128,11 @@ async function restoreState(
   statesByBaseDir.clear();
   let latest: SonarAnalysisState | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
-    if (entry.type === "custom" && entry.customType === STATE_TYPE && entry.data) {
+    if (
+      entry.type === "custom" &&
+      entry.customType === STATE_TYPE &&
+      entry.data
+    ) {
       latest = entry.data as SonarAnalysisState;
       statesByBaseDir.set(latest.baseDir, latest);
     }
@@ -132,7 +167,12 @@ async function analyzeProject(
     const dashboardUrl = report["dashboardUrl"];
     const analysisId = ceTaskUrl
       ? (analysisUi.setPhase("Waiting for SonarQube analysis..."),
-        await waitForAnalysis(config.serverUrl, config.token, ceTaskUrl, ctx.signal))
+        await waitForAnalysis(
+          config.serverUrl,
+          config.token,
+          ceTaskUrl,
+          ctx.signal,
+        ))
       : undefined;
 
     analysisUi.setPhase("Fetching issues...");
@@ -154,7 +194,11 @@ async function analyzeProject(
     );
 
     analysisUi.setPhase("Detecting mode...");
-    const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
+    const cleanCodeMode = await fetchCleanCodeMode(
+      config.serverUrl,
+      config.token,
+      ctx.signal,
+    );
 
     const state = createAnalysisState(config, issues, {
       dashboardUrl,
@@ -200,26 +244,50 @@ async function collectInitInputs(
   ctx: ExtensionCommandContext,
   existing: SonarInitConfig | undefined,
   baseDir: string,
-): Promise<{ serverUrl: string; projectKey: string; token: string | undefined } | undefined> {
-  const serverUrlInput = await ctx.ui.editor("SonarQube server URL", existing?.serverUrl ?? "http://localhost:9000");
+): Promise<
+  | { serverUrl: string; projectKey: string; token: string | undefined }
+  | undefined
+> {
+  const serverUrlInput = await ctx.ui.editor(
+    "SonarQube server URL",
+    existing?.serverUrl ?? "http://localhost:9000",
+  );
   if (serverUrlInput === undefined) return undefined;
-  const serverUrl = normalizeServerUrl(serverUrlInput || existing?.serverUrl || "http://localhost:9000");
+  const serverUrl = normalizeServerUrl(
+    serverUrlInput || existing?.serverUrl || "http://localhost:9000",
+  );
 
-  const projectKeyInput = await ctx.ui.input("SonarQube project key", existing?.projectKey ?? basename(baseDir));
+  const projectKeyInput = await ctx.ui.input(
+    "SonarQube project key",
+    existing?.projectKey ?? basename(baseDir),
+  );
   if (projectKeyInput === undefined) return undefined;
-  const projectKey = projectKeyInput || existing?.projectKey || slugify(basename(baseDir));
+  const projectKey =
+    projectKeyInput || existing?.projectKey || slugify(basename(baseDir));
 
-  const tokenInput = await ctx.ui.input("SonarQube token (optional, press Enter to skip)", existing?.token ?? "");
+  const tokenInput = await ctx.ui.input(
+    "SonarQube token (optional, press Enter to skip)",
+    existing?.token ?? "",
+  );
   if (tokenInput === undefined) return undefined;
 
   return { serverUrl, projectKey, token: tokenInput.trim() || undefined };
 }
 
-async function initCommandHandler(ctx: ExtensionCommandContext, options: InitCommandOptions = {}): Promise<void> {
-  const { baseDir, repoRoot } = await resolveInitTarget(ctx, options.alias, options.targetInput);
+async function initCommandHandler(
+  ctx: ExtensionCommandContext,
+  options: InitCommandOptions = {},
+): Promise<void> {
+  const { baseDir, repoRoot } = await resolveInitTarget(
+    ctx,
+    options.alias,
+    options.targetInput,
+  );
   const existing = await loadProjectConfig(baseDir);
 
-  const confirmed = existing ? await confirmOverwrite(ctx, baseDir, existing) : true;
+  const confirmed = existing
+    ? await confirmOverwrite(ctx, baseDir, existing)
+    : true;
   if (!confirmed) return;
 
   const inputs = await collectInitInputs(ctx, existing, baseDir);
@@ -250,7 +318,10 @@ function notifyInitResult(
   } else if (propertiesState === "updated") {
     note = ` and merged ${sonarProjectPropertiesPath(baseDir)}`;
   }
-  ctx.ui.notify(`SonarQube config saved${label} to ${projectConfigPath(baseDir)}${note}`, "info");
+  ctx.ui.notify(
+    `SonarQube config saved${label} to ${projectConfigPath(baseDir)}${note}`,
+    "info",
+  );
 }
 
 // ── Tool result rendering helpers (reduces renderResult complexity) ─────────
@@ -289,9 +360,10 @@ function renderIssueListResult(
   lines.push(theme.fg("accent", summary));
   if (state.measures) {
     const density = state.measures.duplicatedLinesDensity.toFixed(1);
-    const detail = state.measures.duplicatedBlocks > 0
-      ? `Duplication: ${density}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
-      : `Duplication: ${density}%  (no duplications detected)`;
+    const detail =
+      state.measures.duplicatedBlocks > 0
+        ? `Duplication: ${density}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
+        : `Duplication: ${density}%  (no duplications detected)`;
     lines.push(theme.fg("dim", detail));
   }
 
@@ -304,7 +376,9 @@ function renderIssueListResult(
     lines.push(theme.fg("muted", formatIssue(issue, i + 1)));
   }
   if (!expanded && state.issues.length > visible.length) {
-    lines.push(theme.fg("dim", `... ${state.issues.length - visible.length} more`));
+    lines.push(
+      theme.fg("dim", `... ${state.issues.length - visible.length} more`),
+    );
   }
   return new Text(lines.join("\n"), 0, 0);
 }
@@ -333,22 +407,55 @@ export default function sonarqube(pi: ExtensionAPI) {
           const line = lines[cursorLine] ?? "";
           const beforeCursor = line.slice(0, cursorCol);
           const match = /^\/sonarqube(?:\s+(.*))?$/.exec(beforeCursor);
-          if (!match) return current.getSuggestions(lines, cursorLine, cursorCol, options);
+          if (!match)
+            return current.getSuggestions(
+              lines,
+              cursorLine,
+              cursorCol,
+              options,
+            );
 
           const argumentText = match[1] ?? "";
-          const { current: currentToken } = splitSonarArgumentContext(argumentText);
-          const extraItems = sonarArgumentCompletions(argumentText, latestState?.issues, latestState?.cleanCodeMode) ?? [];
-          const currentSuggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
-          const merged = mergeAutocompleteSuggestions(currentToken, currentSuggestions, extraItems);
+          const { current: currentToken } =
+            splitSonarArgumentContext(argumentText);
+          const extraItems =
+            sonarArgumentCompletions(
+              argumentText,
+              latestState?.issues,
+              latestState?.cleanCodeMode,
+            ) ?? [];
+          const currentSuggestions = await current.getSuggestions(
+            lines,
+            cursorLine,
+            cursorCol,
+            options,
+          );
+          const merged = mergeAutocompleteSuggestions(
+            currentToken,
+            currentSuggestions,
+            extraItems,
+          );
           return merged ?? currentSuggestions;
         },
 
         applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
-          return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+          return current.applyCompletion(
+            lines,
+            cursorLine,
+            cursorCol,
+            item,
+            prefix,
+          );
         },
 
         shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
-          return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+          return (
+            current.shouldTriggerFileCompletion?.(
+              lines,
+              cursorLine,
+              cursorCol,
+            ) ?? true
+          );
         },
       }));
     }
@@ -384,24 +491,43 @@ export default function sonarqube(pi: ExtensionAPI) {
         if (params.action === "analyze") {
           const state = await analyzeProject(pi, ctx, params.path, filters);
           rememberState(state);
-          return { content: [{ type: "text", text: formatReport(state) }], details: state };
+          return {
+            content: [{ type: "text", text: formatReport(state) }],
+            details: state,
+          };
         }
 
-        if (params.action === "duplications") return toolDuplications(ctx, params.path);
+        if (params.action === "duplications")
+          return toolDuplications(ctx, params.path);
         if (params.action === "metrics") return toolMetrics(ctx, params.path);
 
-        const targetState = await resolveTargetState(ctx, statesByBaseDir, params.path, filters);
+        const targetState = await resolveTargetState(
+          ctx,
+          statesByBaseDir,
+          params.path,
+          filters,
+        );
         if (!targetState) {
           return {
-            content: [{ type: "text", text: "No SonarQube analysis has been run for this target yet." }],
-            details: { error: "No SonarQube analysis has been run for this target yet." },
+            content: [
+              {
+                type: "text",
+                text: "No SonarQube analysis has been run for this target yet.",
+              },
+            ],
+            details: {
+              error: "No SonarQube analysis has been run for this target yet.",
+            },
           };
         }
 
         rememberState(targetState);
 
         if (params.action === "issues") {
-          return { content: [{ type: "text", text: formatReport(targetState) }], details: targetState };
+          return {
+            content: [{ type: "text", text: formatReport(targetState) }],
+            details: targetState,
+          };
         }
 
         const index = params.issueIndex ?? 1;
@@ -415,12 +541,20 @@ export default function sonarqube(pi: ExtensionAPI) {
 
         const preview = await buildIssuePreview(targetState.baseDir, issue);
         return {
-          content: [{ type: "text", text: `${formatIssue(issue, index)}\n\n${preview}` }],
+          content: [
+            {
+              type: "text",
+              text: `${formatIssue(issue, index)}\n\n${preview}`,
+            },
+          ],
           details: { ...targetState, selectedIssue: issue },
         };
       } catch (error) {
         const msg = sonarErrorMessage(error);
-        return { content: [{ type: "text", text: msg }], details: { error: msg } };
+        return {
+          content: [{ type: "text", text: msg }],
+          details: { error: msg },
+        };
       }
     },
 
@@ -433,7 +567,9 @@ export default function sonarqube(pi: ExtensionAPI) {
         softwareQualities: args.softwareQualities,
         impactSeverities: args.impactSeverities,
       });
-      const filterText = filters ? ` ${theme.fg("muted", issueFilterLabel(filters))}` : "";
+      const filterText = filters
+        ? ` ${theme.fg("muted", issueFilterLabel(filters))}`
+        : "";
       return new Text(
         `${theme.fg("toolTitle", theme.bold("sonarqube"))} ${theme.fg("muted", args.action)}${
           args.path ? ` ${theme.fg("accent", args.path)}` : ""
@@ -460,7 +596,10 @@ export default function sonarqube(pi: ExtensionAPI) {
 
       if ("selectedIssue" in state && state.selectedIssue) {
         const issue = state.selectedIssue;
-        const contentText = result.content[0]?.type === "text" ? result.content[0].text : undefined;
+        const contentText =
+          result.content[0]?.type === "text"
+            ? result.content[0].text
+            : undefined;
         return renderIssueResult(issue, contentText, expanded, theme);
       }
 
@@ -474,8 +613,14 @@ export default function sonarqube(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("sonarqube", {
-    description: "Run a local SonarQube analysis, browse the latest issues, or init project config",
-    getArgumentCompletions: (argumentPrefix) => sonarArgumentCompletions(argumentPrefix, latestState?.issues, latestState?.cleanCodeMode),
+    description:
+      "Run a local SonarQube analysis, browse the latest issues, or init project config",
+    getArgumentCompletions: (argumentPrefix) =>
+      sonarArgumentCompletions(
+        argumentPrefix,
+        latestState?.issues,
+        latestState?.cleanCodeMode,
+      ),
     handler: async (args, ctx) => {
       try {
         const parsed = parseCommandArgs(args);
@@ -484,20 +629,40 @@ export default function sonarqube(pi: ExtensionAPI) {
             if (ctx.hasUI) ctx.ui.notify(helpText(), "info");
             return;
           case "init":
-            await initCommandHandler(ctx, { alias: parsed.alias, targetInput: parsed.targetInput });
+            await initCommandHandler(ctx, {
+              alias: parsed.alias,
+              targetInput: parsed.targetInput,
+            });
             return;
           case "analyze": {
-            await commandAnalyze(pi, ctx, parsed.targetInput, parsed.filters, rememberState);
+            await commandAnalyze(
+              pi,
+              ctx,
+              parsed.targetInput,
+              parsed.filters,
+              rememberState,
+            );
             return;
           }
           case "metrics":
             await commandMetrics(ctx, parsed.targetInput);
             return;
           case "duplications":
-            await commandDuplications(pi, ctx, parsed.targetInput, parsed.issueIndex);
+            await commandDuplications(
+              pi,
+              ctx,
+              parsed.targetInput,
+              parsed.issueIndex,
+            );
             return;
           default:
-            await commandIssuesOrOpen(pi, ctx, statesByBaseDir, parsed, rememberState);
+            await commandIssuesOrOpen(
+              pi,
+              ctx,
+              statesByBaseDir,
+              parsed,
+              rememberState,
+            );
         }
       } catch (error) {
         if (ctx.hasUI) {
@@ -533,19 +698,48 @@ async function commandMetrics(
   targetInput?: string,
 ): Promise<void> {
   const config = await resolveConfig(ctx, targetInput);
-  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
+  const cleanCodeMode = await fetchCleanCodeMode(
+    config.serverUrl,
+    config.token,
+    ctx.signal,
+  );
   const [measures, issueCounts, qualityCounts] = await Promise.all([
-    fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
-    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal, cleanCodeMode),
-    fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchDuplicationMeasures(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    ),
+    fetchIssueSeverityCounts(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+      cleanCodeMode,
+    ),
+    fetchIssueQualityCounts(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    ),
   ]);
   if (!measures && !issueCounts && !qualityCounts) {
     if (ctx.hasUI) {
-      ctx.ui.notify(`Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`, "warning");
+      ctx.ui.notify(
+        `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
+        "warning",
+      );
     }
     return;
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode });
+  const text = formatMetricsOutput({
+    projectKey: config.projectKey,
+    measures,
+    issueCounts,
+    issueQualityCounts: qualityCounts,
+    cleanCodeMode,
+  });
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
   }
@@ -560,12 +754,20 @@ async function commandDuplications(
   const config = await resolveConfig(ctx, targetInput);
   let files: FileDuplication[];
   try {
-    files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
+    files = await fetchFileDuplications(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    );
   } catch (error) {
     const msg = sonarErrorMessage(error);
     if (msg.includes("403") || msg.includes("Insufficient privileges")) {
       if (ctx.hasUI) {
-        ctx.ui.notify("SonarQube token needs 'See Source Code' permission to list duplicated files. Update the token permissions in SonarQube and run /sonarqube init to update the token.", "warning");
+        ctx.ui.notify(
+          "SonarQube token needs 'See Source Code' permission to list duplicated files. Update the token permissions in SonarQube and run /sonarqube init to update the token.",
+          "warning",
+        );
       }
       return;
     }
@@ -594,8 +796,18 @@ async function showDuplicationDrillDown(
     if (ctx.hasUI) ctx.ui.notify(`File #${fileIndex} not found.`, "error");
     return;
   }
-  const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-  const text = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
+  const groups = await fetchFileDuplicationBlocks(
+    config.serverUrl,
+    config.token,
+    file.fileKey,
+    config.projectKey,
+    ctx.signal,
+  );
+  const text = await buildDuplicationPreview(
+    config.baseDir,
+    file.filePath,
+    groups,
+  );
   if (ctx.mode === "tui") {
     await ctx.ui.editor(`Duplications in ${file.filePath}`, text);
   } else if (ctx.hasUI) {
@@ -615,7 +827,13 @@ async function showDuplicationListOrBrowser(
   const choice = await showDuplicationBrowser(ctx, files);
   if (choice == null) return;
   const file = files[choice];
-  const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
+  const groups = await fetchFileDuplicationBlocks(
+    config.serverUrl,
+    config.token,
+    file.fileKey,
+    config.projectKey,
+    ctx.signal,
+  );
   const lines = [`Duplications in ${file.filePath}`];
   for (const [i, group] of groups.entries()) {
     lines.push("", `Block ${i + 1}:`);
@@ -632,10 +850,20 @@ async function commandIssuesOrOpen(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   statesByBaseDir: Map<string, SonarAnalysisState>,
-  parsed: { targetInput?: string; filters?: SonarIssueFetchOptions; action: string; issueIndex?: number },
+  parsed: {
+    targetInput?: string;
+    filters?: SonarIssueFetchOptions;
+    action: string;
+    issueIndex?: number;
+  },
   rememberState: (s: SonarAnalysisState) => void,
 ): Promise<void> {
-  const targetState = await resolveTargetState(ctx, statesByBaseDir, parsed.targetInput, parsed.filters);
+  const targetState = await resolveTargetState(
+    ctx,
+    statesByBaseDir,
+    parsed.targetInput,
+    parsed.filters,
+  );
   if (!targetState) {
     if (ctx.hasUI) {
       ctx.ui.notify(
@@ -675,8 +903,12 @@ async function commandShowIssues(
     const issue = targetState.issues[choice];
     if (issue) {
       const line = issue.line ? `:${issue.line}` : "";
-      const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
-      ctx.ui.setEditorText(`${issue.severity} ${issue.filePath}${line} — ${rule} — ${issue.message}`);
+      const rule = issue.ruleName
+        ? `${issue.rule} (${issue.ruleName})`
+        : issue.rule;
+      ctx.ui.setEditorText(
+        `${issue.severity} ${issue.filePath}${line} — ${rule} — ${issue.message}`,
+      );
       ctx.ui.notify("Issue loaded into editor — press Enter to send", "info");
     }
   }
@@ -684,24 +916,45 @@ async function commandShowIssues(
 
 // ── Tool helper functions ────────────────────────────────────────────────────
 
-async function toolDuplications(ctx: any, path: string | undefined): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+async function toolDuplications(
+  ctx: any,
+  path: string | undefined,
+): Promise<{
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, unknown>;
+}> {
   let config;
   try {
     config = await resolveConfig(ctx, path);
   } catch {
     return {
-      content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
+      content: [
+        {
+          type: "text",
+          text: "Project not configured. Run /sonarqube init first.",
+        },
+      ],
       details: { error: "Project not configured." },
     };
   }
   let files: FileDuplication[];
   try {
-    files = await fetchFileDuplications(config.serverUrl, config.token, config.projectKey, ctx.signal);
+    files = await fetchFileDuplications(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    );
   } catch (error) {
     const msg = sonarErrorMessage(error);
     if (msg.includes("403") || msg.includes("Insufficient privileges")) {
       return {
-        content: [{ type: "text", text: "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init." }],
+        content: [
+          {
+            type: "text",
+            text: "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init.",
+          },
+        ],
         details: { error: "Token missing 'See Source Code' permission." },
       };
     }
@@ -712,7 +965,12 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
   }
   if (files.length === 0) {
     return {
-      content: [{ type: "text", text: `No duplications found for ${config.projectKey}.` }],
+      content: [
+        {
+          type: "text",
+          text: `No duplications found for ${config.projectKey}.`,
+        },
+      ],
       details: { error: `No duplications found for ${config.projectKey}.` },
     };
   }
@@ -721,12 +979,23 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
   const topContexts = await Promise.all(
     topFiles.map(async (file) => {
       try {
-        const groups = await fetchFileDuplicationBlocks(config.serverUrl, config.token, file.fileKey, config.projectKey, ctx.signal);
-        const preview = await buildDuplicationPreview(config.baseDir, file.filePath, groups);
+        const groups = await fetchFileDuplicationBlocks(
+          config.serverUrl,
+          config.token,
+          file.fileKey,
+          config.projectKey,
+          ctx.signal,
+        );
+        const preview = await buildDuplicationPreview(
+          config.baseDir,
+          file.filePath,
+          groups,
+        );
         return {
           filePath: file.filePath,
           duplicatedBlocks: file.duplicatedBlocks,
           duplicatedLines: file.duplicatedLines,
+          duplicatedLinesDensity: file.duplicatedLinesDensity,
           preview,
         };
       } catch (error) {
@@ -734,6 +1003,7 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
           filePath: file.filePath,
           duplicatedBlocks: file.duplicatedBlocks,
           duplicatedLines: file.duplicatedLines,
+          duplicatedLinesDensity: file.duplicatedLinesDensity,
           preview: `Duplications in ${file.filePath}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
         };
       }
@@ -741,12 +1011,22 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
   );
   const remaining = files.length - topContexts.length;
   const content: Array<{ type: "text"; text: string }> = [
-    { type: "text", text: `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.` },
+    {
+      type: "text",
+      text: `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.`,
+    },
     ...topContexts.map((item, index) => ({
       type: "text" as const,
-      text: `#${index + 1} ${item.filePath}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
+      text: `#${index + 1} ${item.filePath}  dup%=${item.duplicatedLinesDensity.toFixed(1)}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
     })),
-    ...(remaining > 0 ? [{ type: "text" as const, text: `+ ${remaining} more file(s) not shown` }] : []),
+    ...(remaining > 0
+      ? [
+          {
+            type: "text" as const,
+            text: `+ ${remaining} more file(s) not shown`,
+          },
+        ]
+      : []),
   ];
   return {
     content,
@@ -759,30 +1039,83 @@ async function toolDuplications(ctx: any, path: string | undefined): Promise<{ c
   };
 }
 
-async function toolMetrics(ctx: any, path: string | undefined): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+async function toolMetrics(
+  ctx: any,
+  path: string | undefined,
+): Promise<{
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, unknown>;
+}> {
   let config;
   try {
     config = await resolveConfig(ctx, path);
   } catch {
     return {
-      content: [{ type: "text", text: "Project not configured. Run /sonarqube init first." }],
+      content: [
+        {
+          type: "text",
+          text: "Project not configured. Run /sonarqube init first.",
+        },
+      ],
       details: { error: "Project not configured." },
     };
   }
-  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
+  const cleanCodeMode = await fetchCleanCodeMode(
+    config.serverUrl,
+    config.token,
+    ctx.signal,
+  );
   const [measures, issueCounts, qualityCounts] = await Promise.all([
-    fetchDuplicationMeasures(config.serverUrl, config.token, config.projectKey, ctx.signal),
-    fetchIssueSeverityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal, cleanCodeMode),
-    fetchIssueQualityCounts(config.serverUrl, config.token, config.projectKey, ctx.signal),
+    fetchDuplicationMeasures(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    ),
+    fetchIssueSeverityCounts(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+      cleanCodeMode,
+    ),
+    fetchIssueQualityCounts(
+      config.serverUrl,
+      config.token,
+      config.projectKey,
+      ctx.signal,
+    ),
   ]);
   if (!measures && !issueCounts && !qualityCounts) {
     return {
-      content: [{ type: "text", text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` }],
-      details: { error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.` },
+      content: [
+        {
+          type: "text",
+          text: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
+        },
+      ],
+      details: {
+        error: `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
+      },
     };
   }
-  const text = formatMetricsOutput({ projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode });
-  return { content: [{ type: "text", text }], details: { projectKey: config.projectKey, measures, issueCounts, issueQualityCounts: qualityCounts, cleanCodeMode } };
+  const text = formatMetricsOutput({
+    projectKey: config.projectKey,
+    measures,
+    issueCounts,
+    issueQualityCounts: qualityCounts,
+    cleanCodeMode,
+  });
+  return {
+    content: [{ type: "text", text }],
+    details: {
+      projectKey: config.projectKey,
+      measures,
+      issueCounts,
+      issueQualityCounts: qualityCounts,
+      cleanCodeMode,
+    },
+  };
 }
 
 // ── Re-exports for public API ───────────────────────────────────────────────
@@ -797,4 +1130,8 @@ export type {
   IssueQualityCounts,
 } from "./types.js";
 
-export { projectConfigPath, loadProjectConfig, saveProjectConfig } from "./config.js";
+export {
+  projectConfigPath,
+  loadProjectConfig,
+  saveProjectConfig,
+} from "./config.js";

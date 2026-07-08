@@ -41,6 +41,7 @@ export interface FileDuplication {
   filePath: string;
   fileKey: string;
   duplicatedLines: number;
+  duplicatedLinesDensity: number;
   duplicatedBlocks: number;
 }
 
@@ -119,8 +120,30 @@ export interface InitCommandOptions {
 
 // ── Constants shared by adapter and extension ───────────────────────────────
 
-export const SONAR_SEVERITIES = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"] as const;
-export const SONAR_STATUSES = ["OPEN", "CONFIRMED", "REOPENED", "RESOLVED", "CLOSED"] as const;
+export const SONAR_SEVERITIES = [
+  "BLOCKER",
+  "CRITICAL",
+  "MAJOR",
+  "MINOR",
+  "INFO",
+] as const;
+export const SONAR_STATUSES = [
+  "OPEN",
+  "CONFIRMED",
+  "REOPENED",
+  "RESOLVED",
+  "CLOSED",
+] as const;
 export const SONAR_TYPES = ["BUG", "VULNERABILITY", "CODE_SMELL"] as const;
-export const SONAR_SOFTWARE_QUALITIES = ["MAINTAINABILITY", "RELIABILITY", "SECURITY"] as const;
-export const SONAR_IMPACT_SEVERITIES = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"] as const;
+export const SONAR_SOFTWARE_QUALITIES = [
+  "MAINTAINABILITY",
+  "RELIABILITY",
+  "SECURITY",
+] as const;
+export const SONAR_IMPACT_SEVERITIES = [
+  "BLOCKER",
+  "HIGH",
+  "MEDIUM",
+  "LOW",
+  "INFO",
+] as const;

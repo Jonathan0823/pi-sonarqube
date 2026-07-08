@@ -1,14 +1,34 @@
-import type { Theme, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  Theme,
+  ExtensionContext,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { SonarIssue, SonarAnalysisState, SonarIssueFetchOptions, FileDuplication, DuplicationBlockGroup } from "./types.js";
-import { issueFilterLabel, fetchIssues, createAnalysisState, normalizeIssueFilters, fetchCleanCodeMode } from "./api.js";
+import type {
+  SonarIssue,
+  SonarAnalysisState,
+  SonarIssueFetchOptions,
+  FileDuplication,
+  DuplicationBlockGroup,
+} from "./types.js";
+import {
+  issueFilterLabel,
+  fetchIssues,
+  createAnalysisState,
+  normalizeIssueFilters,
+  fetchCleanCodeMode,
+} from "./api.js";
 import { resolveConfig, resolveTarget } from "./config.js";
 
 // ── Issue preview ───────────────────────────────────────────────────────────
 
-export async function buildIssuePreview(baseDir: string, issue: SonarIssue, radius = 3): Promise<string> {
+export async function buildIssuePreview(
+  baseDir: string,
+  issue: SonarIssue,
+  radius = 3,
+): Promise<string> {
   const filePath = resolve(baseDir, issue.filePath);
   const content = await readFile(filePath, "utf8");
   const lines = content.split(/\r?\n/);
@@ -40,7 +60,11 @@ export async function buildDuplicationPreview(
     cache.set(absolutePath, content);
     return content.split(/\r?\n/);
   };
-  const renderRange = (lines: string[], from: number, size: number): string[] => {
+  const renderRange = (
+    lines: string[],
+    from: number,
+    size: number,
+  ): string[] => {
     const start = Math.max(1, from);
     const end = Math.min(lines.length, from + size - 1);
     const width = String(end).length;
@@ -76,7 +100,18 @@ export async function buildDuplicationPreview(
 
 // ── Analysis UI ─────────────────────────────────────────────────────────────
 
-const ANALYSIS_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const ANALYSIS_SPINNER = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+] as const;
 const ANALYSIS_WIDGET_KEY = "sonarqube-analysis";
 
 export interface AnalysisUiHandle {
@@ -84,16 +119,25 @@ export interface AnalysisUiHandle {
   stop(): void;
 }
 
-export function startAnalysisUi(ctx: ExtensionContext, projectKey: string): AnalysisUiHandle {
+export function startAnalysisUi(
+  ctx: ExtensionContext,
+  projectKey: string,
+): AnalysisUiHandle {
   let frameIndex = 0;
   let phase = "Starting...";
   const render = () => {
     const frame = ANALYSIS_SPINNER[frameIndex];
-    ctx.ui.setWidget(ANALYSIS_WIDGET_KEY, [`${frame} SonarQube ${projectKey}`, phase]);
+    ctx.ui.setWidget(ANALYSIS_WIDGET_KEY, [
+      `${frame} SonarQube ${projectKey}`,
+      phase,
+    ]);
   };
 
   ctx.ui.setWorkingMessage(`Analyzing ${projectKey}...`);
-  ctx.ui.setWorkingIndicator({ frames: ANALYSIS_SPINNER as unknown as string[], intervalMs: 80 });
+  ctx.ui.setWorkingIndicator({
+    frames: ANALYSIS_SPINNER as unknown as string[],
+    intervalMs: 80,
+  });
   render();
 
   const timer = setInterval(() => {
@@ -129,11 +173,18 @@ export class IssueBrowser {
   invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
-    this.selected = handleListBrowserInput(data, this.selected, this.state.issues.length, this.done);
+    this.selected = handleListBrowserInput(
+      data,
+      this.selected,
+      this.state.issues.length,
+      this.done,
+    );
   }
 
   render(width: number): string[] {
-    const filterSuffix = this.state.filters ? ` • ${issueFilterLabel(this.state.filters)}` : "";
+    const filterSuffix = this.state.filters
+      ? ` • ${issueFilterLabel(this.state.filters)}`
+      : "";
     return renderListBrowser(this.theme, width, {
       title: "SonarQube Issues",
       subtitle: `${this.state.projectKey} • ${this.state.totalIssues} issue(s)${filterSuffix}`,
@@ -143,9 +194,15 @@ export class IssueBrowser {
       emptyMessage: "No open issues found.",
       footer: "Up/Down to move, Enter to preview, Esc to close",
       renderItem: (issue, issueIndex, isSelected) => {
-        const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
-        const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
-        const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
+        const marker = isSelected
+          ? this.theme.fg("accent", ">")
+          : this.theme.fg("dim", " ");
+        const location = issue.line
+          ? `${issue.filePath}:${issue.line}`
+          : issue.filePath;
+        const rule = issue.ruleName
+          ? `${issue.rule} (${issue.ruleName})`
+          : issue.rule;
         const severity = severityColor(this.theme, issue.severity);
         return [
           marker,
@@ -199,7 +256,11 @@ function handleListBrowserInput(
   return selected;
 }
 
-function getBrowserWindow(selected: number, total: number, pageSize: number): { start: number; end: number } {
+function getBrowserWindow(
+  selected: number,
+  total: number,
+  pageSize: number,
+): { start: number; end: number } {
   const halfWindow = Math.floor(pageSize / 2);
   const maxStart = Math.max(0, total - pageSize);
   const start = Math.max(0, Math.min(selected - halfWindow, maxStart));
@@ -230,7 +291,11 @@ function renderListBrowser<T>(
   ];
 
   const pageSize = Math.min(config.pageSize, config.items.length);
-  const { start, end } = getBrowserWindow(config.selected, config.items.length, pageSize);
+  const { start, end } = getBrowserWindow(
+    config.selected,
+    config.items.length,
+    pageSize,
+  );
   const visible = config.items.slice(start, end);
 
   if (visible.length === 0) {
@@ -243,14 +308,26 @@ function renderListBrowser<T>(
   }
 
   if (start > 0) {
-    lines.push(truncateToWidth(theme.fg("dim", `... ${start} more above`), width));
+    lines.push(
+      truncateToWidth(theme.fg("dim", `... ${start} more above`), width),
+    );
   }
   for (const [offset, item] of visible.entries()) {
     const index = start + offset;
-    lines.push(truncateToWidth(config.renderItem(item, index, index === config.selected), width));
+    lines.push(
+      truncateToWidth(
+        config.renderItem(item, index, index === config.selected),
+        width,
+      ),
+    );
   }
   if (end < config.items.length) {
-    lines.push(truncateToWidth(theme.fg("dim", `... ${config.items.length - end} more below`), width));
+    lines.push(
+      truncateToWidth(
+        theme.fg("dim", `... ${config.items.length - end} more below`),
+        width,
+      ),
+    );
   }
 
   lines.push("", truncateToWidth(theme.fg("dim", config.footer), width));
@@ -271,7 +348,12 @@ export class DuplicationBrowser {
   invalidate(): void {} // NOSONAR - required by TUI interface
 
   handleInput(data: string): void {
-    this.selected = handleListBrowserInput(data, this.selected, this.files.length, this.done);
+    this.selected = handleListBrowserInput(
+      data,
+      this.selected,
+      this.files.length,
+      this.done,
+    );
   }
 
   render(width: number): string[] {
@@ -284,8 +366,10 @@ export class DuplicationBrowser {
       emptyMessage: "No duplicate code found.",
       footer: "Up/Down to move, Enter for details, Esc to close",
       renderItem: (file, index, isSelected) => {
-        const marker = isSelected ? this.theme.fg("accent", ">") : this.theme.fg("dim", " ");
-        const detail = `blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
+        const marker = isSelected
+          ? this.theme.fg("accent", ">")
+          : this.theme.fg("dim", " ");
+        const detail = `dup%=${file.duplicatedLinesDensity.toFixed(1)}  blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
         return `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", detail)}`;
       },
     });
@@ -297,7 +381,9 @@ export async function showDuplicationBrowser(
   files: FileDuplication[],
 ): Promise<number | null> {
   if (ctx.mode !== "tui" || files.length === 0) return null;
-  return await ctx.ui.custom<number | null>((_tui, theme, _kb, done) => new DuplicationBrowser(files, theme, done));
+  return await ctx.ui.custom<number | null>(
+    (_tui, theme, _kb, done) => new DuplicationBrowser(files, theme, done),
+  );
 }
 
 // ── Issue browser / preview helpers (used by index.ts) ──────────────────────
@@ -308,7 +394,9 @@ export async function showIssueBrowser(
 ): Promise<number | null> {
   if (ctx.mode !== "tui") return null;
   if (state.issues.length === 0) return null;
-  return await ctx.ui.custom<number | null>((_tui, theme, _kb, done) => new IssueBrowser(state, theme, done));
+  return await ctx.ui.custom<number | null>(
+    (_tui, theme, _kb, done) => new IssueBrowser(state, theme, done),
+  );
 }
 
 export async function openIssuePreview(
@@ -341,8 +429,15 @@ export async function loadProjectIssuesFromApi(
     ctx.signal,
     normalizedFilters,
   );
-  const cleanCodeMode = await fetchCleanCodeMode(config.serverUrl, config.token, ctx.signal);
-  return createAnalysisState(config, issues, { filters: normalizedFilters, cleanCodeMode });
+  const cleanCodeMode = await fetchCleanCodeMode(
+    config.serverUrl,
+    config.token,
+    ctx.signal,
+  );
+  return createAnalysisState(config, issues, {
+    filters: normalizedFilters,
+    cleanCodeMode,
+  });
 }
 
 export async function resolveTargetState(

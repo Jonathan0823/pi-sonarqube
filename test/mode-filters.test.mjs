@@ -47,11 +47,20 @@ test("fetchCleanCodeMode caches by server URL", async () => {
 });
 
 test("parses MQR filters and rejects mixed families", () => {
-  assert.deepEqual(parseIssueFilterToken("quality:SECURITY"), { softwareQualities: ["SECURITY"] });
-  assert.deepEqual(parseIssueFilterToken("impactSeverity:HIGH"), { impactSeverities: ["HIGH"] });
-  assert.doesNotThrow(() => assertFiltersNotAmbiguous({ severities: ["CRITICAL"] }));
+  assert.deepEqual(parseIssueFilterToken("quality:SECURITY"), {
+    softwareQualities: ["SECURITY"],
+  });
+  assert.deepEqual(parseIssueFilterToken("impactSeverity:HIGH"), {
+    impactSeverities: ["HIGH"],
+  });
+  assert.doesNotThrow(() =>
+    assertFiltersNotAmbiguous({ severities: ["CRITICAL"] }),
+  );
   assert.throws(() =>
-    assertFiltersNotAmbiguous({ severities: ["CRITICAL"], softwareQualities: ["SECURITY"] }),
+    assertFiltersNotAmbiguous({
+      severities: ["CRITICAL"],
+      softwareQualities: ["SECURITY"],
+    }),
   );
 });
 
@@ -65,7 +74,13 @@ test("formats metrics with standard severity labels", () => {
   assert.match(text, /Issues:\s+BLOCKER 1/);
   assert.match(text, /CRITICAL 2/);
   assert.match(text, /Quality:\s+MAINTAINABILITY 6/);
-  assert.match(issueFilterLabel({ softwareQualities: ["SECURITY"], impactSeverities: ["HIGH"] }), /qualities=SECURITY/);
+  assert.match(
+    issueFilterLabel({
+      softwareQualities: ["SECURITY"],
+      impactSeverities: ["HIGH"],
+    }),
+    /qualities=SECURITY/,
+  );
 });
 
 test("formats metrics with MQR severity labels", () => {
@@ -75,7 +90,10 @@ test("formats metrics with MQR severity labels", () => {
     issueCounts: { blocker: 1, critical: 2, major: 3, minor: 4, info: 5 },
   });
 
-  assert.match(text, /Issues:\s+BLOCKER 1\s+HIGH 2\s+MEDIUM 3\s+LOW 4\s+INFO 5/);
+  assert.match(
+    text,
+    /Issues:\s+BLOCKER 1\s+HIGH 2\s+MEDIUM 3\s+LOW 4\s+INFO 5/,
+  );
 });
 
 test("formats coverage line when coverage data is present", () => {
@@ -134,10 +152,22 @@ test("fetchIssueSeverityCounts uses impact severities in MQR mode", async () => 
       });
     };
 
-    const counts = await fetchIssueSeverityCounts("http://example.test", "token", "demo", undefined, "MQR");
+    const counts = await fetchIssueSeverityCounts(
+      "http://example.test",
+      "token",
+      "demo",
+      undefined,
+      "MQR",
+    );
 
     assert.match(requestedUrl, /facets=impactSeverities/);
-    assert.deepEqual(counts, { blocker: 1, critical: 2, major: 3, minor: 4, info: 5 });
+    assert.deepEqual(counts, {
+      blocker: 1,
+      critical: 2,
+      major: 3,
+      minor: 4,
+      info: 5,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -146,11 +176,78 @@ test("fetchIssueSeverityCounts uses impact severities in MQR mode", async () => 
 test("file duplication fetch surfaces permission errors", async () => {
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () => mockResponse({ errors: [{ msg: "Insufficient privileges" }] }, 403);
+    globalThis.fetch = async () =>
+      mockResponse({ errors: [{ msg: "Insufficient privileges" }] }, 403);
 
     await assert.rejects(
-      () => fetchFileDuplications("http://example.test", "token", "demo", undefined),
+      () =>
+        fetchFileDuplications(
+          "http://example.test",
+          "token",
+          "demo",
+          undefined,
+        ),
       /403|Insufficient privileges/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("file duplication fetch sorts by duplicated lines density", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  try {
+    globalThis.fetch = async (input) => {
+      requestedUrl = String(input);
+      return mockResponse({
+        components: [
+          {
+            key: "demo:a",
+            path: "src/a.ts",
+            measures: [
+              { metric: "duplicated_blocks", value: "1" },
+              { metric: "duplicated_lines", value: "10" },
+              { metric: "duplicated_lines_density", value: "2.5" },
+            ],
+          },
+          {
+            key: "demo:b",
+            path: "src/b.ts",
+            measures: [
+              { metric: "duplicated_blocks", value: "2" },
+              { metric: "duplicated_lines", value: "20" },
+              { metric: "duplicated_lines_density", value: "8.0" },
+            ],
+          },
+          {
+            key: "demo:c",
+            path: "src/c.ts",
+            measures: [
+              { metric: "duplicated_blocks", value: "3" },
+              { metric: "duplicated_lines", value: "15" },
+              { metric: "duplicated_lines_density", value: "5.0" },
+            ],
+          },
+        ],
+      });
+    };
+
+    const files = await fetchFileDuplications(
+      "http://example.test",
+      "token",
+      "demo",
+      undefined,
+    );
+
+    assert.match(requestedUrl, /duplicated_lines_density/);
+    assert.deepEqual(
+      files.map((file) => file.filePath),
+      ["src/b.ts", "src/c.ts", "src/a.ts"],
+    );
+    assert.deepEqual(
+      files.map((file) => file.duplicatedLinesDensity),
+      [8, 5, 2.5],
     );
   } finally {
     globalThis.fetch = originalFetch;

@@ -12,7 +12,13 @@ import type {
   FileDuplication,
   DuplicationBlockGroup,
 } from "./types.js";
-import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
+import {
+  SONAR_SEVERITIES,
+  SONAR_STATUSES,
+  SONAR_TYPES,
+  SONAR_SOFTWARE_QUALITIES,
+  SONAR_IMPACT_SEVERITIES,
+} from "./types.js";
 import { parseProperties } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
@@ -51,7 +57,11 @@ export function authHeader(token?: string): string | undefined {
   return `Basic ${Buffer.from(credentials).toString("base64")}`;
 }
 
-export async function fetchJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
+export async function fetchJson<T>(
+  url: string,
+  token?: string,
+  signal?: AbortSignal,
+): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   const auth = authHeader(token);
   if (auth) headers.Authorization = auth;
@@ -60,14 +70,20 @@ export async function fetchJson<T>(url: string, token?: string, signal?: AbortSi
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     const suffix = body.trim() ? `: ${body.trim().slice(0, 240)}` : "";
-    throw new Error(`SonarQube API request failed (${response.status} ${response.statusText}) for ${url}${suffix}`);
+    throw new Error(
+      `SonarQube API request failed (${response.status} ${response.statusText}) for ${url}${suffix}`,
+    );
   }
 
   return (await response.json()) as T;
 }
 
-export function toIssuePath(component: string | undefined | null, projectKey: string): string {
-  if (typeof component !== "string" || component.length === 0) return projectKey;
+export function toIssuePath(
+  component: string | undefined | null,
+  projectKey: string,
+): string {
+  if (typeof component !== "string" || component.length === 0)
+    return projectKey;
   const prefix = `${projectKey}:`;
   if (component.startsWith(prefix)) return component.slice(prefix.length);
   const colon = component.indexOf(":");
@@ -76,7 +92,10 @@ export function toIssuePath(component: string | undefined | null, projectKey: st
 
 // ── Issue filter helpers ────────────────────────────────────────────────────
 
-export function normalizeIssueList(values?: string[], uppercase = false): string[] | undefined {
+export function normalizeIssueList(
+  values?: string[],
+  uppercase = false,
+): string[] | undefined {
   const cleaned = values
     ?.map((v) => v.trim())
     .filter(Boolean)
@@ -85,7 +104,9 @@ export function normalizeIssueList(values?: string[], uppercase = false): string
   return [...new Set(cleaned)];
 }
 
-export function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIssueFetchOptions | undefined {
+export function normalizeIssueFilters(
+  filters?: SonarIssueFetchOptions,
+): SonarIssueFetchOptions | undefined {
   const normalized = {
     severities: normalizeIssueList(filters?.severities, true),
     statuses: normalizeIssueList(filters?.statuses, true),
@@ -94,12 +115,19 @@ export function normalizeIssueFilters(filters?: SonarIssueFetchOptions): SonarIs
     softwareQualities: normalizeIssueList(filters?.softwareQualities, true),
     impactSeverities: normalizeIssueList(filters?.impactSeverities, true),
   };
-  return normalized.severities || normalized.statuses || normalized.types || normalized.rules || normalized.softwareQualities || normalized.impactSeverities
+  return normalized.severities ||
+    normalized.statuses ||
+    normalized.types ||
+    normalized.rules ||
+    normalized.softwareQualities ||
+    normalized.impactSeverities
     ? normalized
     : undefined;
 }
 
-export function assertFiltersNotAmbiguous(filters?: SonarIssueFetchOptions): void {
+export function assertFiltersNotAmbiguous(
+  filters?: SonarIssueFetchOptions,
+): void {
   if (!filters) return;
   if (
     (filters.severities?.length || filters.types?.length) &&
@@ -107,21 +135,26 @@ export function assertFiltersNotAmbiguous(filters?: SonarIssueFetchOptions): voi
   ) {
     throw new Error(
       "Ambiguous filter combination: mixing legacy filters (severity/type) with MQR filters (quality/impactSeverity) is not allowed. " +
-      "Use one filter family per command.",
+        "Use one filter family per command.",
     );
   }
 }
 
 const EXPLICIT_FILTER_RE = /^([^:=]+)[:=](.+)$/;
 
-export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOptions> | undefined {
+export function parseIssueFilterToken(
+  token: string,
+): Partial<SonarIssueFetchOptions> | undefined {
   const trimmed = token.trim();
   if (!trimmed) return undefined;
 
   const explicit = EXPLICIT_FILTER_RE.exec(trimmed);
   if (explicit) {
     const key = explicit[1].trim().toLowerCase();
-    const values = explicit[2].split(",").map((p) => p.trim()).filter(Boolean);
+    const values = explicit[2]
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
     if (values.length === 0) return undefined;
 
     switch (key) {
@@ -151,18 +184,35 @@ export function parseIssueFilterToken(token: string): Partial<SonarIssueFetchOpt
   }
 
   const upper = trimmed.toUpperCase();
-  if (SONAR_SEVERITIES.includes(upper as (typeof SONAR_SEVERITIES)[number])) return { severities: [upper] };
-  if (SONAR_STATUSES.includes(upper as (typeof SONAR_STATUSES)[number])) return { statuses: [upper] };
-  if (SONAR_TYPES.includes(upper as (typeof SONAR_TYPES)[number])) return { types: [upper] };
-  if (SONAR_SOFTWARE_QUALITIES.includes(upper as (typeof SONAR_SOFTWARE_QUALITIES)[number])) return { softwareQualities: [upper] };
-  if (SONAR_IMPACT_SEVERITIES.includes(upper as (typeof SONAR_IMPACT_SEVERITIES)[number])) return { impactSeverities: [upper] };
+  if (SONAR_SEVERITIES.includes(upper as (typeof SONAR_SEVERITIES)[number]))
+    return { severities: [upper] };
+  if (SONAR_STATUSES.includes(upper as (typeof SONAR_STATUSES)[number]))
+    return { statuses: [upper] };
+  if (SONAR_TYPES.includes(upper as (typeof SONAR_TYPES)[number]))
+    return { types: [upper] };
+  if (
+    SONAR_SOFTWARE_QUALITIES.includes(
+      upper as (typeof SONAR_SOFTWARE_QUALITIES)[number],
+    )
+  )
+    return { softwareQualities: [upper] };
+  if (
+    SONAR_IMPACT_SEVERITIES.includes(
+      upper as (typeof SONAR_IMPACT_SEVERITIES)[number],
+    )
+  )
+    return { impactSeverities: [upper] };
   return undefined;
 }
 
 export function parseSonarIssueArgs(
   tokens: string[],
   allowIssueIndex = false,
-): { targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions } {
+): {
+  targetInput?: string;
+  issueIndex?: number;
+  filters?: SonarIssueFetchOptions;
+} {
   const filters: Array<Partial<SonarIssueFetchOptions> | undefined> = [];
   let targetInput: string | undefined;
   let issueIndex: number | undefined;
@@ -194,12 +244,24 @@ function mergeFilters(
   const merged: SonarIssueFetchOptions = {};
   for (const filter of filters) {
     if (!filter) continue;
-    if (filter.severities?.length) merged.severities = [...(merged.severities ?? []), ...filter.severities];
-    if (filter.statuses?.length) merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
-    if (filter.types?.length) merged.types = [...(merged.types ?? []), ...filter.types];
-    if (filter.rules?.length) merged.rules = [...(merged.rules ?? []), ...filter.rules];
-    if (filter.softwareQualities?.length) merged.softwareQualities = [...(merged.softwareQualities ?? []), ...filter.softwareQualities];
-    if (filter.impactSeverities?.length) merged.impactSeverities = [...(merged.impactSeverities ?? []), ...filter.impactSeverities];
+    if (filter.severities?.length)
+      merged.severities = [...(merged.severities ?? []), ...filter.severities];
+    if (filter.statuses?.length)
+      merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
+    if (filter.types?.length)
+      merged.types = [...(merged.types ?? []), ...filter.types];
+    if (filter.rules?.length)
+      merged.rules = [...(merged.rules ?? []), ...filter.rules];
+    if (filter.softwareQualities?.length)
+      merged.softwareQualities = [
+        ...(merged.softwareQualities ?? []),
+        ...filter.softwareQualities,
+      ];
+    if (filter.impactSeverities?.length)
+      merged.impactSeverities = [
+        ...(merged.impactSeverities ?? []),
+        ...filter.impactSeverities,
+      ];
   }
   return normalizeIssueFilters(merged);
 }
@@ -207,12 +269,16 @@ function mergeFilters(
 export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
   if (!filters) return "";
   const parts: string[] = [];
-  if (filters.severities?.length) parts.push(`severities=${filters.severities.join(",")}`);
-  if (filters.statuses?.length) parts.push(`statuses=${filters.statuses.join(",")}`);
+  if (filters.severities?.length)
+    parts.push(`severities=${filters.severities.join(",")}`);
+  if (filters.statuses?.length)
+    parts.push(`statuses=${filters.statuses.join(",")}`);
   if (filters.types?.length) parts.push(`types=${filters.types.join(",")}`);
   if (filters.rules?.length) parts.push(`rules=${filters.rules.join(",")}`);
-  if (filters.softwareQualities?.length) parts.push(`qualities=${filters.softwareQualities.join(",")}`);
-  if (filters.impactSeverities?.length) parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
+  if (filters.softwareQualities?.length)
+    parts.push(`qualities=${filters.softwareQualities.join(",")}`);
+  if (filters.impactSeverities?.length)
+    parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
   return parts.join(" • ");
 }
 
@@ -237,7 +303,8 @@ function severitySortRank(severity: string): number {
 }
 
 function compareIssuesForContext(left: SonarIssue, right: SonarIssue): number {
-  const severityDiff = severitySortRank(left.severity) - severitySortRank(right.severity);
+  const severityDiff =
+    severitySortRank(left.severity) - severitySortRank(right.severity);
   if (severityDiff !== 0) return severityDiff;
   const fileDiff = left.filePath.localeCompare(right.filePath);
   if (fileDiff !== 0) return fileDiff;
@@ -256,7 +323,11 @@ export function sonarScannerInstallHint(): string {
   ].join(" ");
 }
 
-export function extractScannerHint(output: string, config: SonarProjectConfig, exitCode?: number): string {
+export function extractScannerHint(
+  output: string,
+  config: SonarProjectConfig,
+  exitCode?: number,
+): string {
   const lines = output.toLowerCase();
 
   const isNotFoundOnPath =
@@ -268,7 +339,10 @@ export function extractScannerHint(output: string, config: SonarProjectConfig, e
 
   const isUnauthorized = /status code 401|status 401|unauthorized/i.test(lines);
   if (isUnauthorized) {
-    const defaultHint = config.serverUrl === "http://localhost:9000" ? " (default: http://localhost:9000)" : "";
+    const defaultHint =
+      config.serverUrl === "http://localhost:9000"
+        ? " (default: http://localhost:9000)"
+        : "";
     return [
       `Authentication failed for ${config.serverUrl}${defaultHint}.`,
       "Run `/sonarqube init` to set up your server URL and token, then retry.",
@@ -285,7 +359,10 @@ export function extractScannerHint(output: string, config: SonarProjectConfig, e
     ].join(" ");
   }
 
-  const isConnectionError = /connect econnrefused|connect refused|connect timeout|enotfound|econnreset/i.test(lines);
+  const isConnectionError =
+    /connect econnrefused|connect refused|connect timeout|enotfound|econnreset/i.test(
+      lines,
+    );
   if (isConnectionError) {
     return [
       `Cannot reach SonarQube server at ${config.serverUrl}.`,
@@ -294,7 +371,11 @@ export function extractScannerHint(output: string, config: SonarProjectConfig, e
     ].join(" ");
   }
 
-  if (/not found|unknown url/i.test(lines) && (config.serverUrl === "http://localhost:9000" || /localhost/i.test(config.serverUrl))) {
+  if (
+    /not found|unknown url/i.test(lines) &&
+    (config.serverUrl === "http://localhost:9000" ||
+      /localhost/i.test(config.serverUrl))
+  ) {
     return [
       `SonarQube API at ${config.serverUrl} returned "not found".`,
       "The default server URL is http://localhost:9000. Run `/sonarqube init` to configure.",
@@ -306,7 +387,11 @@ export function extractScannerHint(output: string, config: SonarProjectConfig, e
 
 // ── Scanner interaction ─────────────────────────────────────────────────────
 
-export async function runScanner(pi: ExtensionAPI, config: SonarProjectConfig, signal?: AbortSignal): Promise<string> {
+export async function runScanner(
+  pi: ExtensionAPI,
+  config: SonarProjectConfig,
+  signal?: AbortSignal,
+): Promise<string> {
   const scannerCheck =
     process.platform === "win32"
       ? await pi.exec("cmd", ["/d", "/s", "/c", "where", "sonar-scanner"], {
@@ -356,7 +441,9 @@ export async function runScanner(pi: ExtensionAPI, config: SonarProjectConfig, s
   return result.stdout || result.stderr;
 }
 
-export async function readReportTask(baseDir: string): Promise<Record<string, string>> {
+export async function readReportTask(
+  baseDir: string,
+): Promise<Record<string, string>> {
   const path = resolve(baseDir, ".scannerwork", "report-task.txt");
   const text = await readFile(path, "utf8");
   return parseProperties(text);
@@ -375,7 +462,9 @@ export async function waitForAnalysis(
     const status = result.task.status.toUpperCase();
     if (status === "SUCCESS") return result.task.analysisId;
     if (status === "FAILED") {
-      throw new Error(`SonarQube analysis failed: ${result.task.errorMessage || "unknown error"}`);
+      throw new Error(
+        `SonarQube analysis failed: ${result.task.errorMessage || "unknown error"}`,
+      );
     }
     if (status === "CANCELED") {
       throw new Error("SonarQube analysis was canceled by the server");
@@ -398,12 +487,24 @@ function buildIssueSearchUrl(
   url.searchParams.set("resolved", "false");
   url.searchParams.set("ps", "100");
   url.searchParams.set("p", String(page));
-  if (filters?.severities?.length) url.searchParams.set("severities", filters.severities.join(","));
-  if (filters?.statuses?.length) url.searchParams.set("statuses", filters.statuses.join(","));
-  if (filters?.types?.length) url.searchParams.set("types", filters.types.join(","));
-  if (filters?.rules?.length) url.searchParams.set("rules", filters.rules.join(","));
-  if (filters?.softwareQualities?.length) url.searchParams.set("impactSoftwareQualities", filters.softwareQualities.join(","));
-  if (filters?.impactSeverities?.length) url.searchParams.set("impactSeverities", filters.impactSeverities.join(","));
+  if (filters?.severities?.length)
+    url.searchParams.set("severities", filters.severities.join(","));
+  if (filters?.statuses?.length)
+    url.searchParams.set("statuses", filters.statuses.join(","));
+  if (filters?.types?.length)
+    url.searchParams.set("types", filters.types.join(","));
+  if (filters?.rules?.length)
+    url.searchParams.set("rules", filters.rules.join(","));
+  if (filters?.softwareQualities?.length)
+    url.searchParams.set(
+      "impactSoftwareQualities",
+      filters.softwareQualities.join(","),
+    );
+  if (filters?.impactSeverities?.length)
+    url.searchParams.set(
+      "impactSeverities",
+      filters.impactSeverities.join(","),
+    );
   return url.toString();
 }
 
@@ -439,7 +540,18 @@ export async function fetchIssuePage(
   page: number,
   signal?: AbortSignal,
   filters?: SonarIssueFetchOptions,
-): Promise<{ total: number; issueRows: Array<{ key: string; rule: string; severity: string; message: string; component: string; line?: number; status?: string }> }> {
+): Promise<{
+  total: number;
+  issueRows: Array<{
+    key: string;
+    rule: string;
+    severity: string;
+    message: string;
+    component: string;
+    line?: number;
+    status?: string;
+  }>;
+}> {
   const url = buildIssueSearchUrl(serverUrl, projectKey, page, filters);
   const result = await fetchJson<{
     total: number;
@@ -472,13 +584,21 @@ export async function fetchIssues(
 
   for (;;) {
     const { total: pageTotal, issueRows } = await fetchIssuePage(
-      serverUrl, token, projectKey, page, signal, normalizedFilters,
+      serverUrl,
+      token,
+      projectKey,
+      page,
+      signal,
+      normalizedFilters,
     );
     total = pageTotal;
 
     for (const raw of issueRows) {
       if (!ruleNames.has(raw.rule)) {
-        ruleNames.set(raw.rule, await fetchRuleName(serverUrl, token, raw.rule, signal));
+        ruleNames.set(
+          raw.rule,
+          await fetchRuleName(serverUrl, token, raw.rule, signal),
+        );
       }
       issues.push(mapRawIssue(raw, projectKey, ruleNames));
     }
@@ -517,7 +637,17 @@ export async function fetchRuleName(
 export function createAnalysisState(
   config: Pick<SonarProjectConfig, "baseDir" | "serverUrl" | "projectKey">,
   issues: SonarIssue[],
-  extras: Partial<Pick<SonarAnalysisState, "dashboardUrl" | "ceTaskUrl" | "analysisId" | "filters" | "measures" | "cleanCodeMode">> = {},
+  extras: Partial<
+    Pick<
+      SonarAnalysisState,
+      | "dashboardUrl"
+      | "ceTaskUrl"
+      | "analysisId"
+      | "filters"
+      | "measures"
+      | "cleanCodeMode"
+    >
+  > = {},
 ): SonarAnalysisState {
   return {
     version: 1,
@@ -554,15 +684,20 @@ export async function fetchDuplicationMeasures(
       const m = measures.find((m) => m.metric === key);
       return m ? Number.parseFloat(m.value) : 0;
     };
-    const hasMetric = (key: string): boolean => measures.some((m) => m.metric === key);
+    const hasMetric = (key: string): boolean =>
+      measures.some((m) => m.metric === key);
     return {
       duplicatedLinesDensity: getValue("duplicated_lines_density"),
       duplicatedLines: getValue("duplicated_lines"),
       duplicatedBlocks: getValue("duplicated_blocks"),
       duplicatedFiles: getValue("duplicated_files"),
       coverage: hasMetric("coverage") ? getValue("coverage") : undefined,
-      linesToCover: hasMetric("lines_to_cover") ? getValue("lines_to_cover") : undefined,
-      uncoveredLines: hasMetric("uncovered_lines") ? getValue("uncovered_lines") : undefined,
+      linesToCover: hasMetric("lines_to_cover")
+        ? getValue("lines_to_cover")
+        : undefined,
+      uncoveredLines: hasMetric("uncovered_lines")
+        ? getValue("uncovered_lines")
+        : undefined,
     };
   } catch {
     return undefined;
@@ -580,7 +715,10 @@ export async function fetchIssueSeverityCounts(
     const facetKey = mode === "MQR" ? "impactSeverities" : "severities";
     const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=${facetKey}`;
     const result = await fetchJson<{
-      facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
+      facets: Array<{
+        property: string;
+        values: Array<{ val: string; count: number }>;
+      }>;
     }>(url, token, signal);
     const facet = result.facets?.find((f) => f.property === facetKey);
     if (!facet) return undefined;
@@ -617,9 +755,14 @@ export async function fetchIssueQualityCounts(
   try {
     const url = `${serverUrl}/api/issues/search?projects=${encodeURIComponent(projectKey)}&resolved=false&ps=1&facets=impactSoftwareQualities`;
     const result = await fetchJson<{
-      facets: Array<{ property: string; values: Array<{ val: string; count: number }> }>;
+      facets: Array<{
+        property: string;
+        values: Array<{ val: string; count: number }>;
+      }>;
     }>(url, token, signal);
-    const facet = result.facets?.find((f) => f.property === "impactSoftwareQualities");
+    const facet = result.facets?.find(
+      (f) => f.property === "impactSoftwareQualities",
+    );
     if (!facet) return undefined;
     const getCount = (q: string): number => {
       const entry = facet.values.find((v) => v.val === q);
@@ -643,7 +786,7 @@ export async function fetchFileDuplications(
   projectKey: string,
   signal?: AbortSignal,
 ): Promise<FileDuplication[]> {
-  const treeUrl = `${serverUrl}/api/measures/component_tree?component=${encodeURIComponent(projectKey)}&qualifiers=FIL&metricKeys=duplicated_lines,duplicated_blocks&ps=500`;
+  const treeUrl = `${serverUrl}/api/measures/component_tree?component=${encodeURIComponent(projectKey)}&qualifiers=FIL&metricKeys=duplicated_lines,duplicated_lines_density,duplicated_blocks&ps=500`;
   const treeResult = await fetchJson<{
     components: Array<{
       key: string;
@@ -658,18 +801,31 @@ export async function fetchFileDuplications(
       const measures = component.measures ?? [];
       const getValue = (metric: string): number => {
         const m = measures.find((item) => item.metric === metric);
-        return m ? Number.parseInt(m.value, 10) : 0;
+        return m ? Number.parseFloat(m.value) : 0;
       };
       const duplicatedBlocks = getValue("duplicated_blocks");
       if (duplicatedBlocks <= 0) return null;
       return {
-        filePath: component.path ?? toIssuePath(component.key, projectKey) ?? component.name ?? component.key,
+        filePath:
+          component.path ??
+          toIssuePath(component.key, projectKey) ??
+          component.name ??
+          component.key,
         fileKey: component.key,
         duplicatedLines: getValue("duplicated_lines"),
+        duplicatedLinesDensity: getValue("duplicated_lines_density"),
         duplicatedBlocks,
       };
     })
-    .filter((f): f is FileDuplication => f !== null);
+    .filter((f): f is FileDuplication => f !== null)
+    .sort((left, right) => {
+      const densityDiff =
+        right.duplicatedLinesDensity - left.duplicatedLinesDensity;
+      if (densityDiff !== 0) return densityDiff;
+      const linesDiff = right.duplicatedLines - left.duplicatedLines;
+      if (linesDiff !== 0) return linesDiff;
+      return left.filePath.localeCompare(right.filePath);
+    });
 
   return results;
 }
@@ -695,5 +851,3 @@ export async function fetchFileDuplicationBlocks(
     })),
   }));
 }
-
-

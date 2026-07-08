@@ -1,6 +1,23 @@
-import type { AutocompleteItem, AutocompleteSuggestions } from "@earendil-works/pi-tui";
-import type { SonarIssue, SonarIssueFetchOptions, SonarDuplicationMeasures, IssueSeverityCounts, IssueQualityCounts, FileDuplication, DuplicationBlockGroup } from "./types.js";
-import { SONAR_SEVERITIES, SONAR_STATUSES, SONAR_TYPES, SONAR_SOFTWARE_QUALITIES, SONAR_IMPACT_SEVERITIES } from "./types.js";
+import type {
+  AutocompleteItem,
+  AutocompleteSuggestions,
+} from "@earendil-works/pi-tui";
+import type {
+  SonarIssue,
+  SonarIssueFetchOptions,
+  SonarDuplicationMeasures,
+  IssueSeverityCounts,
+  IssueQualityCounts,
+  FileDuplication,
+  DuplicationBlockGroup,
+} from "./types.js";
+import {
+  SONAR_SEVERITIES,
+  SONAR_STATUSES,
+  SONAR_TYPES,
+  SONAR_SOFTWARE_QUALITIES,
+  SONAR_IMPACT_SEVERITIES,
+} from "./types.js";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -9,12 +26,24 @@ import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 export const STATE_TYPE = "sonarqube-analysis-state";
 
 const SONAR_COMMANDS = [
-  { value: "analyze", label: "analyze", description: "run analysis and fetch issues" },
+  {
+    value: "analyze",
+    label: "analyze",
+    description: "run analysis and fetch issues",
+  },
   { value: "issues", label: "issues", description: "browse the latest issues" },
   { value: "open", label: "open", description: "preview a specific issue" },
   { value: "init", label: "init", description: "configure a project target" },
-  { value: "metrics", label: "metrics", description: "show project metrics (duplication, issue counts)" },
-  { value: "duplications", label: "duplications", description: "browse duplicated files and blocks" },
+  {
+    value: "metrics",
+    label: "metrics",
+    description: "show project metrics (duplication, issue counts)",
+  },
+  {
+    value: "duplications",
+    label: "duplications",
+    description: "browse duplicated files and blocks",
+  },
 ] as const;
 
 // ── Autocomplete helpers ────────────────────────────────────────────────────
@@ -24,13 +53,23 @@ export function filterAutocompleteItems(
   prefix: string,
 ): AutocompleteItem[] {
   const query = prefix.trim().toLowerCase();
-  if (!query) return items.map((item) => ({ value: item.value, label: item.label, description: item.description }));
+  if (!query)
+    return items.map((item) => ({
+      value: item.value,
+      label: item.label,
+      description: item.description,
+    }));
   return items
     .filter(
       (item) =>
-        item.value.toLowerCase().startsWith(query) || item.label.toLowerCase().startsWith(query),
+        item.value.toLowerCase().startsWith(query) ||
+        item.label.toLowerCase().startsWith(query),
     )
-    .map((item) => ({ value: item.value, label: item.label, description: item.description }));
+    .map((item) => ({
+      value: item.value,
+      label: item.label,
+      description: item.description,
+    }));
 }
 
 export function mergeAutocompleteSuggestions(
@@ -45,14 +84,16 @@ export function mergeAutocompleteSuggestions(
   return items.length > 0 ? { prefix, items } : current;
 }
 
-export function splitSonarArgumentContext(
-  argumentText: string,
-): { command: string; current: string; tokens: string[] } {
+export function splitSonarArgumentContext(argumentText: string): {
+  command: string;
+  current: string;
+  tokens: string[];
+} {
   const trimmedLeft = argumentText.replace(/^\s+/, "");
   if (!trimmedLeft) return { command: "", current: "", tokens: [] };
 
   const tokens = trimmedLeft.split(/\s+/);
-  const current = /\s$/.test(argumentText) ? "" : tokens.pop() ?? "";
+  const current = /\s$/.test(argumentText) ? "" : (tokens.pop() ?? "");
   const command = tokens[0] ?? current;
   let tokensOut: string[];
   if (tokens.length > 0) {
@@ -69,13 +110,21 @@ export function splitSonarArgumentContext(
   };
 }
 
-function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem[] {
+function createFilterCompletionList(
+  mode?: "STANDARD" | "MQR",
+): AutocompleteItem[] {
   const buildItems = (
-    groups: ReadonlyArray<readonly [string, readonly string[], string, boolean]>,
+    groups: ReadonlyArray<
+      readonly [string, readonly string[], string, boolean]
+    >,
   ): AutocompleteItem[] =>
     groups.flatMap(([prefix, values, description, includeBare]) =>
       values.flatMap((value) => [
-        { value: `${prefix}:${value}`, label: `${prefix}:${value}`, description },
+        {
+          value: `${prefix}:${value}`,
+          label: `${prefix}:${value}`,
+          description,
+        },
         ...(includeBare ? [{ value, label: value, description }] : []),
       ]),
     );
@@ -90,7 +139,9 @@ function createFilterCompletionList(mode?: "STANDARD" | "MQR"): AutocompleteItem
     ["impactSeverity", SONAR_IMPACT_SEVERITIES, "impact severity (MQR)", false],
   ] as const;
 
-  return mode === "MQR" ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)] : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
+  return mode === "MQR"
+    ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)]
+    : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
 export function sonarArgumentCompletions(
@@ -100,18 +151,30 @@ export function sonarArgumentCompletions(
 ): AutocompleteItem[] | null {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
-  const commandMatches = SONAR_COMMANDS.filter((item) => item.value.startsWith(lowerCommand));
-  const isFullMatch = SONAR_COMMANDS.some((item) => item.value === lowerCommand);
+  const commandMatches = SONAR_COMMANDS.filter((item) =>
+    item.value.startsWith(lowerCommand),
+  );
+  const isFullMatch = SONAR_COMMANDS.some(
+    (item) => item.value === lowerCommand,
+  );
 
   if (!command || commandMatches.length > 1 || !isFullMatch) {
     if (commandMatches.length === 0) return null;
-    return commandMatches.map((item) => ({ value: item.value, label: item.value, description: item.description }));
+    return commandMatches.map((item) => ({
+      value: item.value,
+      label: item.value,
+      description: item.description,
+    }));
   }
 
   if (lowerCommand === "open") {
     const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
       const lineSuffix = issue.line ? `:${issue.line}` : "";
-      return { value: String(index + 1), label: String(index + 1), description: `${issue.severity} ${issue.filePath}${lineSuffix}` };
+      return {
+        value: String(index + 1),
+        label: String(index + 1),
+        description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
+      };
     });
     const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
     const filtered = filterAutocompleteItems(suggestions, current);
@@ -124,11 +187,17 @@ export function sonarArgumentCompletions(
     return filtered.length > 0 ? filtered : null;
   }
 
-  if (lowerCommand === "init" || lowerCommand === "metrics" || lowerCommand === "duplications") {
+  if (
+    lowerCommand === "init" ||
+    lowerCommand === "metrics" ||
+    lowerCommand === "duplications"
+  ) {
     return null;
   }
 
-  return tokens.length === 0 ? filterAutocompleteItems(SONAR_COMMANDS, current) : null;
+  return tokens.length === 0
+    ? filterAutocompleteItems(SONAR_COMMANDS, current)
+    : null;
 }
 
 // ── Command arg parsing ─────────────────────────────────────────────────────
@@ -136,12 +205,20 @@ export function sonarArgumentCompletions(
 export type ParsedSonarCommand =
   | { action: "help" }
   | { action: "init"; alias?: string; targetInput?: string }
-  | { action: "analyze"; targetInput?: string; filters?: SonarIssueFetchOptions }
+  | {
+      action: "analyze";
+      targetInput?: string;
+      filters?: SonarIssueFetchOptions;
+    }
   | { action: "issues"; targetInput?: string; filters?: SonarIssueFetchOptions }
-  | { action: "open"; targetInput?: string; issueIndex?: number; filters?: SonarIssueFetchOptions }
+  | {
+      action: "open";
+      targetInput?: string;
+      issueIndex?: number;
+      filters?: SonarIssueFetchOptions;
+    }
   | { action: "metrics"; targetInput?: string }
   | { action: "duplications"; targetInput?: string; issueIndex?: number };
-
 
 export function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -170,7 +247,10 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
     return { action: "metrics", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
   if (head === "duplications") {
-    return { action: "duplications", ...parseSonarIssueArgs(tokens.slice(1), true) };
+    return {
+      action: "duplications",
+      ...parseSonarIssueArgs(tokens.slice(1), true),
+    };
   }
 
   return { action: "analyze", ...parseSonarIssueArgs(tokens) };
@@ -221,8 +301,11 @@ export function sonarErrorMessage(error: unknown): string {
 
 export function formatIssue(issue: SonarIssue, index?: number): string {
   const loc = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
-  const prefix = typeof index === "number" ? `${String(index).padStart(2, "0")}. ` : "";
-  const rule = issue.ruleName ? `${issue.rule} (${issue.ruleName})` : issue.rule;
+  const prefix =
+    typeof index === "number" ? `${String(index).padStart(2, "0")}. ` : "";
+  const rule = issue.ruleName
+    ? `${issue.rule} (${issue.ruleName})`
+    : issue.rule;
   return `${prefix}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
 }
 
@@ -240,10 +323,14 @@ export function formatMetricsOutput(metrics: {
       lines.push("Coverage: n/a");
     } else {
       const pct = metrics.measures.coverage.toFixed(1);
-      const covered = (metrics.measures.linesToCover ?? 0) - (metrics.measures.uncoveredLines ?? 0);
+      const covered =
+        (metrics.measures.linesToCover ?? 0) -
+        (metrics.measures.uncoveredLines ?? 0);
       const uncovered = metrics.measures.uncoveredLines ?? 0;
       const total = metrics.measures.linesToCover ?? 0;
-      lines.push(`Coverage: ${pct}%  covered=${covered}  uncovered=${uncovered}  lines=${total}`);
+      lines.push(
+        `Coverage: ${pct}%  covered=${covered}  uncovered=${uncovered}  lines=${total}`,
+      );
     }
 
     const density = metrics.measures.duplicatedLinesDensity.toFixed(1);
@@ -255,21 +342,22 @@ export function formatMetricsOutput(metrics: {
   }
 
   if (metrics.issueCounts) {
-    const counts = metrics.cleanCodeMode === "MQR"
-      ? [
-          `BLOCKER ${metrics.issueCounts.blocker}`,
-          `HIGH ${metrics.issueCounts.critical}`,
-          `MEDIUM ${metrics.issueCounts.major}`,
-          `LOW ${metrics.issueCounts.minor}`,
-          `INFO ${metrics.issueCounts.info}`,
-        ]
-      : [
-          `BLOCKER ${metrics.issueCounts.blocker}`,
-          `CRITICAL ${metrics.issueCounts.critical}`,
-          `MAJOR ${metrics.issueCounts.major}`,
-          `MINOR ${metrics.issueCounts.minor}`,
-          `INFO ${metrics.issueCounts.info}`,
-        ];
+    const counts =
+      metrics.cleanCodeMode === "MQR"
+        ? [
+            `BLOCKER ${metrics.issueCounts.blocker}`,
+            `HIGH ${metrics.issueCounts.critical}`,
+            `MEDIUM ${metrics.issueCounts.major}`,
+            `LOW ${metrics.issueCounts.minor}`,
+            `INFO ${metrics.issueCounts.info}`,
+          ]
+        : [
+            `BLOCKER ${metrics.issueCounts.blocker}`,
+            `CRITICAL ${metrics.issueCounts.critical}`,
+            `MAJOR ${metrics.issueCounts.major}`,
+            `MINOR ${metrics.issueCounts.minor}`,
+            `INFO ${metrics.issueCounts.info}`,
+          ];
     lines.push(`Issues:  ${counts.join("  ")}`);
   }
 
@@ -289,12 +377,17 @@ export function formatDuplicationsList(files: FileDuplication[]): string {
   if (files.length === 0) return "No duplicated files found.";
   const lines: string[] = [`Duplicated files (${files.length})`];
   for (const [i, f] of files.entries()) {
-    lines.push(`  ${String(i + 1).padStart(2, " ")}. ${f.filePath}  blocks=${f.duplicatedBlocks}  lines=${f.duplicatedLines}`);
+    lines.push(
+      `  ${String(i + 1).padStart(2, " ")}. ${f.filePath}  dup%=${f.duplicatedLinesDensity.toFixed(1)}  blocks=${f.duplicatedBlocks}  lines=${f.duplicatedLines}`,
+    );
   }
   return lines.join("\n");
 }
 
-export function formatDuplicationBlockDetail(filePath: string, groups: DuplicationBlockGroup[]): string {
+export function formatDuplicationBlockDetail(
+  filePath: string,
+  groups: DuplicationBlockGroup[],
+): string {
   if (groups.length === 0) return `No duplications found in ${filePath}.`;
   const lines: string[] = [`Duplications in ${filePath}`, ""];
   for (const [i, group] of groups.entries()) {
@@ -308,9 +401,15 @@ export function formatDuplicationBlockDetail(filePath: string, groups: Duplicati
   return lines.join("\n");
 }
 
-export function formatSummary(state: { totalIssues: number; projectKey: string; filters?: SonarIssueFetchOptions }): string {
+export function formatSummary(state: {
+  totalIssues: number;
+  projectKey: string;
+  filters?: SonarIssueFetchOptions;
+}): string {
   const issueCount = state.totalIssues;
-  const filterLabel = state.filters ? ` (${issueFilterLabel(state.filters)})` : "";
+  const filterLabel = state.filters
+    ? ` (${issueFilterLabel(state.filters)})`
+    : "";
   if (issueCount === 0) {
     return `SonarQube: no issues found for ${state.projectKey}${filterLabel}`;
   }
@@ -339,9 +438,12 @@ export function formatReport(state: {
   }
 
   if (state.measures && state.issues.length > 0) {
-    lines.push("", state.measures.duplicatedBlocks > 0
-      ? `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
-      : `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  (no duplications detected)`);
+    lines.push(
+      "",
+      state.measures.duplicatedBlocks > 0
+        ? `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
+        : `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  (no duplications detected)`,
+    );
   }
 
   if (state.issues.length === 0) {
