@@ -20,7 +20,7 @@ import {
 } from "./types.js";
 import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -163,18 +163,24 @@ function listDirCompletions(dirPath: string, baseDir: string): AutocompleteItem[
 
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
-      const suffix = entry.isDirectory() ? "/" : "";
+      const isDir = entry.isDirectory();
+      const name = isDir ? entry.name + "/" : entry.name;
+      const fullPath = relativePrefix + name;
       items.push({
-        value: `in:${relativePrefix}${entry.name}${suffix}`,
-        label: `in:${relativePrefix}${entry.name}${suffix}`,
-        description: entry.isDirectory() ? "directory" : "file",
+        value: `in:${fullPath}`,
+        label: name,
+        description: relativePrefix.replace(/\/$/, ""),
       });
     }
 
     items.sort((a, b) => {
-      const aDir = a.description === "directory" ? 0 : 1;
-      const bDir = b.description === "directory" ? 0 : 1;
-      return aDir - bDir || a.label.localeCompare(b.label);
+      const aDir = a.description === "" ? 0 : 1;
+      const bDir = b.description === "" ? 0 : 1;
+      if (aDir !== bDir) return aDir - bDir;
+      // Within same depth, dirs first, then by label
+      const aD = a.label.endsWith("/") ? 0 : 1;
+      const bD = b.label.endsWith("/") ? 0 : 1;
+      return aD - bD || a.label.localeCompare(b.label);
     });
 
     return items.length > 0 ? items.slice(0, 50) : null;
@@ -211,10 +217,12 @@ function fuzzyWithCmd(
     if (seen.has(entry)) continue;
     seen.add(entry);
 
+    const dir = dirname(entry);
+    const name = basename(entry) + (isDir ? "/" : "");
     matched.push({
       value: `in:${line}`,
-      label: `in:${line}`,
-      description: isDir ? "directory" : "file",
+      label: name,
+      description: dir === "." ? "" : dir + "/",
     });
 
     // For rg (no dirs output), extract ancestor dirs that match
@@ -224,8 +232,8 @@ function fuzzyWithCmd(
   }
 
   matched.sort((a, b) => {
-    const aDir = a.description === "directory" ? 0 : 1;
-    const bDir = b.description === "directory" ? 0 : 1;
+    const aDir = a.label.endsWith("/") ? 0 : 1;
+    const bDir = b.label.endsWith("/") ? 0 : 1;
     if (aDir !== bDir) return aDir - bDir;
     return a.label.localeCompare(b.label);
   });
@@ -250,10 +258,11 @@ function addAncestorDirMatches(
     if (seen.has(dirPath)) continue;
     seen.add(dirPath);
     if (segs[i].toLowerCase().includes(lowerPrefix)) {
+      const parentDir = segs.slice(0, i).join("/");
       matched.push({
         value: `in:${dirPath}`,
-        label: `in:${dirPath}`,
-        description: "directory",
+        label: segs[i] + "/",
+        description: parentDir || "",
       });
     }
   }
