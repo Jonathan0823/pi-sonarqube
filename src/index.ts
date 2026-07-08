@@ -693,38 +693,52 @@ async function commandAnalyze(
   }
 }
 
-async function commandMetrics(
-  ctx: ExtensionCommandContext,
-  targetInput?: string,
-): Promise<void> {
-  const config = await resolveConfig(ctx, targetInput);
+async function loadMetricsData(
+  config: SonarProjectConfig,
+  signal?: AbortSignal,
+): Promise<{
+  cleanCodeMode: Awaited<ReturnType<typeof fetchCleanCodeMode>>;
+  measures: Awaited<ReturnType<typeof fetchDuplicationMeasures>>;
+  issueCounts: Awaited<ReturnType<typeof fetchIssueSeverityCounts>>;
+  qualityCounts: Awaited<ReturnType<typeof fetchIssueQualityCounts>>;
+} | null> {
   const cleanCodeMode = await fetchCleanCodeMode(
     config.serverUrl,
     config.token,
-    ctx.signal,
+    signal,
   );
   const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
     ),
     fetchIssueSeverityCounts(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
       cleanCodeMode,
     ),
     fetchIssueQualityCounts(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
     ),
   ]);
-  if (!measures && !issueCounts && !qualityCounts) {
+  if (!measures && !issueCounts && !qualityCounts) return null;
+  return { cleanCodeMode, measures, issueCounts, qualityCounts };
+}
+
+async function commandMetrics(
+  ctx: ExtensionCommandContext,
+  targetInput?: string,
+): Promise<void> {
+  const config = await resolveConfig(ctx, targetInput);
+  const metrics = await loadMetricsData(config, ctx.signal);
+  if (!metrics) {
     if (ctx.hasUI) {
       ctx.ui.notify(
         `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
@@ -735,10 +749,10 @@ async function commandMetrics(
   }
   const text = formatMetricsOutput({
     projectKey: config.projectKey,
-    measures,
-    issueCounts,
-    issueQualityCounts: qualityCounts,
-    cleanCodeMode,
+    measures: metrics.measures,
+    issueCounts: metrics.issueCounts,
+    issueQualityCounts: metrics.qualityCounts,
+    cleanCodeMode: metrics.cleanCodeMode,
   });
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
@@ -1060,33 +1074,8 @@ async function toolMetrics(
       details: { error: "Project not configured." },
     };
   }
-  const cleanCodeMode = await fetchCleanCodeMode(
-    config.serverUrl,
-    config.token,
-    ctx.signal,
-  );
-  const [measures, issueCounts, qualityCounts] = await Promise.all([
-    fetchDuplicationMeasures(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-    ),
-    fetchIssueSeverityCounts(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-      cleanCodeMode,
-    ),
-    fetchIssueQualityCounts(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-    ),
-  ]);
-  if (!measures && !issueCounts && !qualityCounts) {
+  const metrics = await loadMetricsData(config, ctx.signal);
+  if (!metrics) {
     return {
       content: [
         {
@@ -1101,19 +1090,19 @@ async function toolMetrics(
   }
   const text = formatMetricsOutput({
     projectKey: config.projectKey,
-    measures,
-    issueCounts,
-    issueQualityCounts: qualityCounts,
-    cleanCodeMode,
+    measures: metrics.measures,
+    issueCounts: metrics.issueCounts,
+    issueQualityCounts: metrics.qualityCounts,
+    cleanCodeMode: metrics.cleanCodeMode,
   });
   return {
     content: [{ type: "text", text }],
     details: {
       projectKey: config.projectKey,
-      measures,
-      issueCounts,
-      issueQualityCounts: qualityCounts,
-      cleanCodeMode,
+      measures: metrics.measures,
+      issueCounts: metrics.issueCounts,
+      issueQualityCounts: metrics.qualityCounts,
+      cleanCodeMode: metrics.cleanCodeMode,
     },
   };
 }
