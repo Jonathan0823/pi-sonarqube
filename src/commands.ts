@@ -183,55 +183,49 @@ function listDirCompletions(dirPath: string, baseDir: string): AutocompleteItem[
   }
 }
 
-function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
-  // Directory browsing: show contents when prefix ends with /
-  if (prefix.endsWith("/")) {
-    const dirPath = resolve(baseDir, prefix);
-    return listDirCompletions(dirPath, baseDir);
-  }
+function fuzzyWithCmd(
+  cmd: string,
+  args: string[],
+  prefix: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
+  const out = execFileSync(cmd, args, {
+    encoding: "utf8",
+    timeout: 3000,
+    maxBuffer: 5 * 1024 * 1024,
+    windowsHide: true,
+  });
+  const lines = out.trim().split("\n").filter(Boolean);
+  if (lines.length === 0) return null;
 
-  // Fuzzy search across the whole tree using rg --files
-  try {
-    const out = execFileSync(
-      "rg",
-      ["--files", "--color", "never", "--no-ignore-parent"],
-      {
-        cwd: baseDir,
-        encoding: "utf8",
-        timeout: 3000,
-        maxBuffer: 5 * 1024 * 1024,
-        windowsHide: true,
-      },
-    );
-    const files = out.trim().split("\n").filter(Boolean);
-    if (files.length === 0) return null;
+  const lowerPrefix = prefix.toLowerCase();
+  const matched: AutocompleteItem[] = [];
+  const seen = new Set<string>();
 
-    const lowerPrefix = prefix.toLowerCase();
-    const matched: AutocompleteItem[] = [];
-    const seen = new Set<string>();
+  for (const line of lines) {
+    if (matched.length >= 50) break;
+    // Normalize: fd outputs dirs with trailing /, rg doesn't
+    const isDir = line.endsWith("/");
+    const entry = isDir ? line.slice(0, -1) : line;
+    if (!entry.toLowerCase().includes(lowerPrefix)) continue;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
 
-    for (const f of files) {
-      if (matched.length >= 50) break;
-      if (!f.toLowerCase().includes(lowerPrefix)) continue;
+    matched.push({
+      value: `in:${line}`,
+      label: `in:${line}`,
+      description: isDir ? "directory" : "file",
+    });
 
-      matched.push({
-        value: `in:${f}`,
-        label: `in:${f}`,
-        description: "file",
-      });
-      seen.add(f);
-
-      // Extract directory paths from matched files
-      const segs = f.split("/");
+    // For rg (no dirs output), extract ancestor dirs that match
+    if (!isDir) {
+      const segs = entry.split("/");
       for (let i = 0; i < segs.length - 1; i++) {
+        if (matched.length >= 50) break;
         const dirPath = segs.slice(0, i + 1).join("/") + "/";
         if (seen.has(dirPath)) continue;
         seen.add(dirPath);
-        // Only add dir if a segment matches the prefix
-        if (
-          segs[i].toLowerCase().includes(lowerPrefix) &&
-          matched.length < 50
-        ) {
+        if (segs[i].toLowerCase().includes(lowerPrefix)) {
           matched.push({
             value: `in:${dirPath}`,
             label: `in:${dirPath}`,
@@ -240,20 +234,68 @@ function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem
         }
       }
     }
-
-    matched.sort((a, b) => {
-      const aDir = a.description === "directory" ? 0 : 1;
-      const bDir = b.description === "directory" ? 0 : 1;
-      if (aDir !== bDir) return aDir - bDir;
-      return a.label.localeCompare(b.label);
-    });
-
-    return matched;
-  } catch {
-    // rg not available — fall through to basic directory listing
   }
 
-  // Fallback: list current directory (step-by-step navigation)
+  matched.sort((a, b) => {
+    const aDir = a.description === "directory" ? 0 : 1;
+    const bDir = b.description === "directory" ? 0 : 1;
+    if (aDir !== bDir) return aDir - bDir;
+    return a.label.localeCompare(b.label);
+  });
+
+  return matched;
+}
+
+function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
+  // Directory browsing: show contents when prefix ends with /
+  if (prefix.endsWith("/")) {
+    return listDirCompletions(resolve(baseDir, prefix), baseDir);
+  }
+
+  // Empty prefix: show root directory contents
+  if (!prefix) {
+    return listDirCompletions(baseDir, baseDir);
+  }
+
+  // Try fd first (fast, respects .gitignore, matches Pi TUI behavior)
+  try {
+    return fuzzyWithCmd(
+      "fd",
+      [
+        "--base-directory",
+        baseDir,
+        "--type",
+        "f",
+        "--type",
+        "d",
+        "--hidden",
+        "--exclude",
+        ".git",
+        "--max-results",
+        "50",
+        "--full-path",
+        prefix,
+      ],
+      prefix,
+      baseDir,
+    );
+  } catch {
+    // fd not available
+  }
+
+  // Fallback: rg --files (slower but available on most systems)
+  try {
+    return fuzzyWithCmd(
+      "rg",
+      ["--files", "--color", "never", "--no-ignore-parent"],
+      prefix,
+      baseDir,
+    );
+  } catch {
+    // rg not available
+  }
+
+  // Last resort: list current directory
   return listDirCompletions(baseDir, baseDir);
 }
 
