@@ -18,8 +18,9 @@ import {
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
 } from "./types.js";
+import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { looksLikePath } from "./config.js";
 import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
 
@@ -153,25 +154,19 @@ function createFilterCompletionList(
     : [...scopeItems, ...ruleItems, ...buildItems(legacyGroups), ...buildItems(mqrGroups)];
 }
 
-function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
-  const lastSlash = prefix.lastIndexOf("/");
-  const dirPrefix = lastSlash >= 0 ? prefix.slice(0, lastSlash + 1) : "";
-  const filePrefix = lastSlash >= 0 ? prefix.slice(lastSlash + 1) : prefix;
-  const searchDir = dirPrefix ? resolve(baseDir, dirPrefix) : baseDir;
-
+function listDirCompletions(dirPath: string, baseDir: string): AutocompleteItem[] | null {
   try {
-    const entries = readdirSync(searchDir, { withFileTypes: true });
+    const entries = readdirSync(dirPath, { withFileTypes: true });
     const items: AutocompleteItem[] = [];
-    const lowerPrefix = filePrefix.toLowerCase();
+    const relativePrefix =
+      dirPath === baseDir ? "" : relative(baseDir, dirPath) + "/";
 
     for (const entry of entries) {
-      if (entry.name.startsWith(".") && !filePrefix) continue;
-      if (!entry.name.toLowerCase().startsWith(lowerPrefix)) continue;
+      if (entry.name.startsWith(".")) continue;
       const suffix = entry.isDirectory() ? "/" : "";
-      const relativePath = dirPrefix + entry.name + suffix;
       items.push({
-        value: `in:${relativePath}`,
-        label: `in:${relativePath}`,
+        value: `in:${relativePrefix}${entry.name}${suffix}`,
+        label: `in:${relativePrefix}${entry.name}${suffix}`,
         description: entry.isDirectory() ? "directory" : "file",
       });
     }
@@ -186,6 +181,80 @@ function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem
   } catch {
     return null;
   }
+}
+
+function getInPathCompletions(prefix: string, baseDir: string): AutocompleteItem[] | null {
+  // Directory browsing: show contents when prefix ends with /
+  if (prefix.endsWith("/")) {
+    const dirPath = resolve(baseDir, prefix);
+    return listDirCompletions(dirPath, baseDir);
+  }
+
+  // Fuzzy search across the whole tree using rg --files
+  try {
+    const out = execFileSync(
+      "rg",
+      ["--files", "--color", "never", "--no-ignore-parent"],
+      {
+        cwd: baseDir,
+        encoding: "utf8",
+        timeout: 3000,
+        maxBuffer: 5 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    const files = out.trim().split("\n").filter(Boolean);
+    if (files.length === 0) return null;
+
+    const lowerPrefix = prefix.toLowerCase();
+    const matched: AutocompleteItem[] = [];
+    const seen = new Set<string>();
+
+    for (const f of files) {
+      if (matched.length >= 50) break;
+      if (!f.toLowerCase().includes(lowerPrefix)) continue;
+
+      matched.push({
+        value: `in:${f}`,
+        label: `in:${f}`,
+        description: "file",
+      });
+      seen.add(f);
+
+      // Extract directory paths from matched files
+      const segs = f.split("/");
+      for (let i = 0; i < segs.length - 1; i++) {
+        const dirPath = segs.slice(0, i + 1).join("/") + "/";
+        if (seen.has(dirPath)) continue;
+        seen.add(dirPath);
+        // Only add dir if a segment matches the prefix
+        if (
+          segs[i].toLowerCase().includes(lowerPrefix) &&
+          matched.length < 50
+        ) {
+          matched.push({
+            value: `in:${dirPath}`,
+            label: `in:${dirPath}`,
+            description: "directory",
+          });
+        }
+      }
+    }
+
+    matched.sort((a, b) => {
+      const aDir = a.description === "directory" ? 0 : 1;
+      const bDir = b.description === "directory" ? 0 : 1;
+      if (aDir !== bDir) return aDir - bDir;
+      return a.label.localeCompare(b.label);
+    });
+
+    return matched;
+  } catch {
+    // rg not available — fall through to basic directory listing
+  }
+
+  // Fallback: list current directory (step-by-step navigation)
+  return listDirCompletions(baseDir, baseDir);
 }
 
 export function sonarArgumentCompletions(
