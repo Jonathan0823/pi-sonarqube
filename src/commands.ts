@@ -399,7 +399,12 @@ export type ParsedSonarCommand =
       filters?: SonarIssueFetchOptions;
     }
   | { action: "metrics"; targetInput?: string }
-  | { action: "duplications"; targetInput?: string; issueIndex?: number };
+  | {
+      action: "duplications";
+      targetInput?: string;
+      issueIndex?: number;
+      filters?: SonarIssueFetchOptions;
+    };
 
 export function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);

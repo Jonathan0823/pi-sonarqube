@@ -817,6 +817,8 @@ export async function fetchFileDuplications(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
+  pathScope?: string,
+  baseDir?: string,
 ): Promise<FileDuplication[]> {
   const treeUrl = `${serverUrl}/api/measures/component_tree?component=${encodeURIComponent(projectKey)}&qualifiers=FIL&metricKeys=duplicated_lines,duplicated_lines_density,duplicated_blocks&ps=500`;
   const treeResult = await fetchJson<{
@@ -828,7 +830,7 @@ export async function fetchFileDuplications(
     }>;
   }>(treeUrl, token, signal);
 
-  const results = (treeResult.components ?? [])
+  let results = (treeResult.components ?? [])
     .map((component) => {
       const measures = component.measures ?? [];
       const getValue = (metric: string): number => {
@@ -849,15 +851,22 @@ export async function fetchFileDuplications(
         duplicatedBlocks,
       };
     })
-    .filter((f): f is FileDuplication => f !== null)
-    .sort((left, right) => {
-      const densityDiff =
-        right.duplicatedLinesDensity - left.duplicatedLinesDensity;
-      if (densityDiff !== 0) return densityDiff;
-      const linesDiff = right.duplicatedLines - left.duplicatedLines;
-      if (linesDiff !== 0) return linesDiff;
-      return left.filePath.localeCompare(right.filePath);
-    });
+    .filter((f): f is FileDuplication => f !== null);
+
+  if (pathScope && baseDir) {
+    const absPath = resolve(baseDir, pathScope);
+    const relPrefix = relative(baseDir, absPath);
+    results = results.filter((f) => f.filePath.startsWith(relPrefix));
+  }
+
+  results.sort((left, right) => {
+    const densityDiff =
+      right.duplicatedLinesDensity - left.duplicatedLinesDensity;
+    if (densityDiff !== 0) return densityDiff;
+    const linesDiff = right.duplicatedLines - left.duplicatedLines;
+    if (linesDiff !== 0) return linesDiff;
+    return left.filePath.localeCompare(right.filePath);
+  });
 
   return results;
 }

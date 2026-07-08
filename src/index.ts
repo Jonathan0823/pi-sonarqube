@@ -655,6 +655,7 @@ export default function sonarqube(pi: ExtensionAPI) {
               ctx,
               parsed.targetInput,
               parsed.issueIndex,
+              parsed.filters,
             );
             return;
           default:
@@ -766,6 +767,7 @@ async function commandDuplications(
   ctx: ExtensionCommandContext,
   targetInput?: string,
   fileIndex?: number,
+  filters?: SonarIssueFetchOptions,
 ): Promise<void> {
   const config = await resolveConfig(ctx, targetInput);
   let files: FileDuplication[];
@@ -775,6 +777,8 @@ async function commandDuplications(
       config.token,
       config.projectKey,
       ctx.signal,
+      filters?.pathScope,
+      config.baseDir,
     );
   } catch (error) {
     const msg = sonarErrorMessage(error);
