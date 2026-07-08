@@ -1,7 +1,12 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
-import type { SonarInitConfig, SonarProjectConfig, SonarWorkspaceRegistry, ResolvedTarget } from "./types.js";
+import type {
+  SonarInitConfig,
+  SonarProjectConfig,
+  SonarWorkspaceRegistry,
+  ResolvedTarget,
+} from "./types.js";
 
 // ── Generic helpers ─────────────────────────────────────────────────────────
 
@@ -40,7 +45,10 @@ export function normalizeServerUrl(url: string | undefined): string {
   return url.trim().replace(/\/+$/, "");
 }
 
-export function resolveProjectKey(baseDir: string, props: Record<string, string>): string {
+export function resolveProjectKey(
+  baseDir: string,
+  props: Record<string, string>,
+): string {
   const fromProps = props["sonar.projectKey"]?.trim();
   if (fromProps) return fromProps;
   return slugify(basename(baseDir));
@@ -48,7 +56,9 @@ export function resolveProjectKey(baseDir: string, props: Record<string, string>
 
 // ── File helpers ────────────────────────────────────────────────────────────
 
-export async function readOptionalText(path: string): Promise<string | undefined> {
+export async function readOptionalText(
+  path: string,
+): Promise<string | undefined> {
   try {
     return await readFile(path, "utf8");
   } catch {
@@ -56,7 +66,9 @@ export async function readOptionalText(path: string): Promise<string | undefined
   }
 }
 
-export async function readOptionalJson<T>(path: string): Promise<T | undefined> {
+export async function readOptionalJson<T>(
+  path: string,
+): Promise<T | undefined> {
   try {
     const text = await readFile(path, "utf8");
     return JSON.parse(text) as T;
@@ -87,14 +99,24 @@ export const DEFAULT_SONAR_EXCLUSIONS = [
   "coverage/**",
   ".scannerwork/**",
   "**/.env*",
+  ".next/**",
+  ".pi/**",
+  "build/**",
+  "out/**",
+  ".turbo/**",
+  ".vercel/**",
 ];
 
-const DEFAULT_SONAR_PROJECT_PROPERTIES = [
-  "sonar.sources=.",
-  `sonar.exclusions=${DEFAULT_SONAR_EXCLUSIONS.join(",")}`,
-].join("\n") + "\n";
+const DEFAULT_SONAR_PROJECT_PROPERTIES =
+  [
+    "sonar.sources=.",
+    `sonar.exclusions=${DEFAULT_SONAR_EXCLUSIONS.join(",")}`,
+  ].join("\n") + "\n";
 
-export function mergeCommaSeparatedValues(existingValue: string | undefined, additions: string[]): string {
+export function mergeCommaSeparatedValues(
+  existingValue: string | undefined,
+  additions: string[],
+): string {
   const merged = new Set(
     (existingValue ?? "")
       .split(",")
@@ -110,7 +132,9 @@ export function mergeCommaSeparatedValues(existingValue: string | undefined, add
 
 const EXCLUSION_RE = /^(\s*)(sonar\.(?:sources|exclusions))\s*=\s*(.*)$/;
 
-export async function ensureDefaultSonarProjectProperties(baseDir: string): Promise<"created" | "updated" | "unchanged"> {
+export async function ensureDefaultSonarProjectProperties(
+  baseDir: string,
+): Promise<"created" | "updated" | "unchanged"> {
   const path = sonarProjectPropertiesPath(baseDir);
   const existing = await readOptionalText(path);
   if (!existing?.trim()) {
@@ -165,19 +189,31 @@ export async function ensureDefaultSonarProjectProperties(baseDir: string): Prom
 
   const normalized = updatedLines.join("\n").replace(/\n*$/, "\n");
   await writeFile(path, normalized, "utf8");
-  return existing.includes("sonar.sources") || existing.includes("sonar.exclusions") ? "updated" : "created";
+  return existing.includes("sonar.sources") ||
+    existing.includes("sonar.exclusions")
+    ? "updated"
+    : "created";
 }
 
 // ── Config load/save ────────────────────────────────────────────────────────
 
-export async function loadProjectConfig(baseDir: string): Promise<SonarInitConfig | undefined> {
+export async function loadProjectConfig(
+  baseDir: string,
+): Promise<SonarInitConfig | undefined> {
   return readOptionalJson<SonarInitConfig>(projectConfigPath(baseDir));
 }
 
-export async function saveProjectConfig(baseDir: string, config: SonarInitConfig): Promise<void> {
+export async function saveProjectConfig(
+  baseDir: string,
+  config: SonarInitConfig,
+): Promise<void> {
   const dir = sonarqubeConfigDir(baseDir);
   await mkdir(dir, { recursive: true });
-  await writeFile(projectConfigPath(baseDir), JSON.stringify(config, null, 2) + "\n", "utf8");
+  await writeFile(
+    projectConfigPath(baseDir),
+    JSON.stringify(config, null, 2) + "\n",
+    "utf8",
+  );
 }
 
 // ── Workspace registry ──────────────────────────────────────────────────────
@@ -211,16 +247,29 @@ export async function loadWorkspaceRegistry(
   startDir: string,
 ): Promise<{ repoRoot: string; registry: SonarWorkspaceRegistry }> {
   const repoRoot = await findRepoRoot(startDir);
-  const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(workspaceRegistryPath(repoRoot));
-  const workspaces = raw?.workspaces && typeof raw.workspaces === "object" ? { ...raw.workspaces } : {};
+  const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(
+    workspaceRegistryPath(repoRoot),
+  );
+  const workspaces =
+    raw?.workspaces && typeof raw.workspaces === "object"
+      ? { ...raw.workspaces }
+      : {};
   return { repoRoot, registry: { version: 1, workspaces } };
 }
 
-export async function saveWorkspaceRegistry(startDir: string, alias: string, targetDir: string): Promise<void> {
+export async function saveWorkspaceRegistry(
+  startDir: string,
+  alias: string,
+  targetDir: string,
+): Promise<void> {
   const { repoRoot, registry } = await loadWorkspaceRegistry(startDir);
   registry.workspaces[alias] = relative(repoRoot, targetDir) || ".";
   await mkdir(sonarqubeConfigDir(repoRoot), { recursive: true });
-  await writeFile(workspaceRegistryPath(repoRoot), JSON.stringify(registry, null, 2) + "\n", "utf8");
+  await writeFile(
+    workspaceRegistryPath(repoRoot),
+    JSON.stringify(registry, null, 2) + "\n",
+    "utf8",
+  );
 }
 
 export function looksLikePath(token: string): boolean {
@@ -237,10 +286,15 @@ export function looksLikePath(token: string): boolean {
 }
 
 export function knownTargets(registry: SonarWorkspaceRegistry): string[] {
-  return Object.keys(registry.workspaces).sort((left, right) => left.localeCompare(right));
+  return Object.keys(registry.workspaces).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
-export async function resolveTarget(ctx: { cwd: string }, targetInput?: string): Promise<ResolvedTarget> {
+export async function resolveTarget(
+  ctx: { cwd: string },
+  targetInput?: string,
+): Promise<ResolvedTarget> {
   const { repoRoot, registry } = await loadWorkspaceRegistry(ctx.cwd);
   if (!targetInput) {
     return { baseDir: ctx.cwd, repoRoot };
@@ -251,7 +305,9 @@ export async function resolveTarget(ctx: { cwd: string }, targetInput?: string):
     const baseDir = resolve(repoRoot, aliasTarget);
     const baseDirStat = await stat(baseDir).catch(() => undefined);
     if (!baseDirStat?.isDirectory()) {
-      throw new Error(`SonarQube target "${targetInput}" points to a missing directory: ${baseDir}`);
+      throw new Error(
+        `SonarQube target "${targetInput}" points to a missing directory: ${baseDir}`,
+      );
     }
     return { baseDir, repoRoot, alias: targetInput };
   }
@@ -271,7 +327,9 @@ export async function resolveTarget(ctx: { cwd: string }, targetInput?: string):
       `Unknown SonarQube target "${targetInput}". Known targets: ${known.join(", ")}. Use /sonarqube init <alias> <path> to add one.`,
     );
   }
-  throw new Error(`Unknown SonarQube target "${targetInput}". Use /sonarqube init <alias> <path> to add one.`);
+  throw new Error(
+    `Unknown SonarQube target "${targetInput}". Use /sonarqube init <alias> <path> to add one.`,
+  );
 }
 
 export async function resolveInitTarget(
@@ -302,7 +360,10 @@ interface ResolveCtx {
   signal?: AbortSignal;
 }
 
-export async function resolveConfig(ctx: ResolveCtx, inputPath?: string): Promise<SonarProjectConfig> {
+export async function resolveConfig(
+  ctx: ResolveCtx,
+  inputPath?: string,
+): Promise<SonarProjectConfig> {
   const { baseDir } = await resolveTarget(ctx, inputPath);
   const propertiesPath = resolve(baseDir, "sonar-project.properties");
   const propertiesText = await readOptionalText(propertiesPath);
