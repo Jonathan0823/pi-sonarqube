@@ -213,8 +213,7 @@ function fuzzyWithCmd(
     // Normalize: fd outputs dirs with trailing /, rg doesn't
     const isDir = line.endsWith("/");
     const entry = isDir ? line.slice(0, -1) : line;
-    if (!entry.toLowerCase().includes(lowerPrefix)) continue;
-    if (seen.has(entry)) continue;
+    if (!entry.toLowerCase().includes(lowerPrefix) || seen.has(entry)) continue;
     seen.add(entry);
 
     const dir = dirname(entry);
