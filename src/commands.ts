@@ -21,7 +21,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { looksLikePath } from "./config.js";
+import { looksLikePath, loadWorkspaceRegistry, knownTargets } from "./config.js";
 import {
   parseSonarIssueArgs,
   issueFilterLabel,
@@ -422,6 +422,47 @@ async function getFilterCompletions(
   return filtered.length > 0 ? filtered : null;
 }
 
+async function getAnalyzeCompletions(
+  current: string,
+  mode: "STANDARD" | "MQR" | undefined,
+  cwd: string | undefined,
+  serverUrl: string | undefined,
+  token: string | undefined,
+  projectKey: string | undefined,
+): Promise<AutocompleteItem[] | null> {
+  const [filterItems, aliasItems] = await Promise.all([
+    getFilterCompletions(current, mode, cwd, serverUrl, token, projectKey),
+    cwd ? getWorkspaceAliases(cwd, current) : Promise.resolve(null),
+  ]);
+  if (!filterItems && !aliasItems) return null;
+  const combined: AutocompleteItem[] = [
+    ...(aliasItems ?? []),
+    ...(filterItems ?? []),
+  ];
+  return combined.length > 0 ? combined : null;
+}
+
+async function getWorkspaceAliases(
+  cwd: string,
+  current: string,
+): Promise<AutocompleteItem[] | null> {
+  try {
+    const { registry } = await loadWorkspaceRegistry(cwd);
+    const aliases = knownTargets(registry);
+    if (aliases.length === 0) return null;
+    return filterAutocompleteItems(
+      aliases.map((alias) => ({
+        value: alias,
+        label: alias,
+        description: registry.workspaces[alias],
+      })),
+      current,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
@@ -453,7 +494,18 @@ export async function sonarArgumentCompletions(
     return getOpenCompletions(issues, mode, current);
   }
 
-  if (lowerCommand === "analyze" || lowerCommand === "issues") {
+  if (lowerCommand === "analyze") {
+    return getAnalyzeCompletions(
+      current,
+      mode,
+      cwd,
+      serverUrl,
+      token,
+      projectKey,
+    );
+  }
+
+  if (lowerCommand === "issues") {
     return getFilterCompletions(
       current,
       mode,
