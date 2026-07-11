@@ -71,7 +71,7 @@ Pi will:
 /sonarqube issues apps/web
 ```
 
-Use **Up/Down** to move, **Enter** to preview the affected source code, and **Esc** to close.
+Use **Up/Down** to move, **Enter** to preview the affected source code, **Esc** to close, and type to search by file, rule, severity, status, or message.
 
 Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 
@@ -91,7 +91,7 @@ Shows coverage percentage, duplicated lines, and issue severity breakdown — no
 /sonarqube duplications apps/web
 ```
 
-Use **Up/Down** to move, **Enter** for block locations and line ranges. Pass a file number directly to skip the browser: `/sonarqube duplications 1`.
+Use **Up/Down** to move, **Enter** for block locations and line ranges, and type to search by file path or duplication stats. Pass a file number directly to skip the browser: `/sonarqube duplications 1`.
 
 ### 6. Open a specific issue
 

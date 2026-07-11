@@ -18,8 +18,16 @@ import {
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
 } from "./types.js";
+import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { basename, dirname, relative, resolve } from "node:path";
 import { looksLikePath } from "./config.js";
-import { parseSonarIssueArgs, issueFilterLabel } from "./api.js";
+import {
+  parseSonarIssueArgs,
+  issueFilterLabel,
+  fetchProjectProfiles,
+  fetchRuleSearch,
+} from "./api.js";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -138,17 +146,291 @@ function createFilterCompletionList(
     ["quality", SONAR_SOFTWARE_QUALITIES, "software quality (MQR)", true],
     ["impactSeverity", SONAR_IMPACT_SEVERITIES, "impact severity (MQR)", false],
   ] as const;
+  const ruleItems = [
+    { value: "rule:", label: "rule:", description: "rule key" },
+    { value: "rules:", label: "rules:", description: "rule key" },
+  ];
+  const scopeItems = [
+    {
+      value: "in:",
+      label: "in:",
+      description: "path or dir scope (e.g. in:src/api.ts or in:src/)",
+    },
+  ];
 
   return mode === "MQR"
-    ? [...buildItems(mqrGroups), ...buildItems(legacyGroups)]
-    : [...buildItems(legacyGroups), ...buildItems(mqrGroups)];
+    ? [
+        ...scopeItems,
+        ...ruleItems,
+        ...buildItems(mqrGroups),
+        ...buildItems(legacyGroups),
+      ]
+    : [
+        ...scopeItems,
+        ...ruleItems,
+        ...buildItems(legacyGroups),
+        ...buildItems(mqrGroups),
+      ];
 }
 
-export function sonarArgumentCompletions(
+function listDirCompletions(
+  dirPath: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
+  try {
+    const entries = readdirSync(dirPath, { withFileTypes: true });
+    const items: AutocompleteItem[] = [];
+    const relativePrefix =
+      dirPath === baseDir ? "" : relative(baseDir, dirPath) + "/";
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const isDir = entry.isDirectory();
+      const name = isDir ? entry.name + "/" : entry.name;
+      const fullPath = relativePrefix + name;
+      items.push({
+        value: `in:${fullPath}`,
+        label: name,
+        description: relativePrefix.replace(/\/$/, ""),
+      });
+    }
+
+    items.sort((a, b) => {
+      const aDir = a.description === "" ? 0 : 1;
+      const bDir = b.description === "" ? 0 : 1;
+      if (aDir !== bDir) return aDir - bDir;
+      // Within same depth, dirs first, then by label
+      const aD = a.label.endsWith("/") ? 0 : 1;
+      const bD = b.label.endsWith("/") ? 0 : 1;
+      return aD - bD || a.label.localeCompare(b.label);
+    });
+
+    return items.length > 0 ? items.slice(0, 50) : null;
+  } catch {
+    return null;
+  }
+}
+
+function fuzzyWithCmd(
+  cmd: string,
+  args: string[],
+  prefix: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
+  const out = execFileSync(cmd, args, {
+    encoding: "utf8",
+    timeout: 3000,
+    maxBuffer: 5 * 1024 * 1024,
+    windowsHide: true,
+  });
+  const lines = out.trim().split("\n").filter(Boolean);
+  if (lines.length === 0) return null;
+
+  const lowerPrefix = prefix.toLowerCase();
+  const matched: AutocompleteItem[] = [];
+  const seen = new Set<string>();
+
+  for (const line of lines) {
+    if (matched.length >= 50) break;
+    // Normalize: fd outputs dirs with trailing /, rg doesn't
+    const isDir = line.endsWith("/");
+    const entry = isDir ? line.slice(0, -1) : line;
+    if (!entry.toLowerCase().includes(lowerPrefix) || seen.has(entry)) continue;
+    seen.add(entry);
+
+    const dir = dirname(entry);
+    const name = basename(entry) + (isDir ? "/" : "");
+    matched.push({
+      value: `in:${line}`,
+      label: name,
+      description: dir === "." ? "" : dir + "/",
+    });
+
+    // For rg (no dirs output), extract ancestor dirs that match
+    if (!isDir) {
+      addAncestorDirMatches(entry, lowerPrefix, matched, seen);
+    }
+  }
+
+  matched.sort((a, b) => {
+    const aDir = a.label.endsWith("/") ? 0 : 1;
+    const bDir = b.label.endsWith("/") ? 0 : 1;
+    if (aDir !== bDir) return aDir - bDir;
+    return a.label.localeCompare(b.label);
+  });
+
+  return matched;
+}
+
+/**
+ * For non-directory entries, extract ancestor directories that match the prefix
+ * and add them as autocomplete suggestions.
+ */
+function addAncestorDirMatches(
+  entry: string,
+  lowerPrefix: string,
+  matched: AutocompleteItem[],
+  seen: Set<string>,
+): void {
+  const segs = entry.split("/");
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (matched.length >= 50) break;
+    const dirPath = segs.slice(0, i + 1).join("/") + "/";
+    if (seen.has(dirPath)) continue;
+    seen.add(dirPath);
+    if (segs[i].toLowerCase().includes(lowerPrefix)) {
+      const parentDir = segs.slice(0, i).join("/");
+      matched.push({
+        value: `in:${dirPath}`,
+        label: segs[i] + "/",
+        description: parentDir || "",
+      });
+    }
+  }
+}
+
+async function fetchRuleAutocompleteCompletions(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  query: string,
+): Promise<AutocompleteItem[] | null> {
+  try {
+    const profiles = await fetchProjectProfiles(serverUrl, token, projectKey);
+    const languages = [
+      ...new Set(profiles.map((p) => p.language).filter(Boolean)),
+    ];
+    const rules = await fetchRuleSearch(serverUrl, token, query, languages);
+    if (rules.length === 0) return null;
+    return rules.map((r) => ({
+      value: `rule:${r.key}`,
+      label: r.key,
+      description: r.name ?? "",
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function getInPathCompletions(
+  prefix: string,
+  baseDir: string,
+): AutocompleteItem[] | null {
+  // Directory browsing: show contents when prefix ends with /
+  if (prefix.endsWith("/")) {
+    return listDirCompletions(resolve(baseDir, prefix), baseDir);
+  }
+
+  // Empty prefix: show root directory contents
+  if (!prefix) {
+    return listDirCompletions(baseDir, baseDir);
+  }
+
+  // Try fd first (fast, respects .gitignore, matches Pi TUI behavior)
+  try {
+    return fuzzyWithCmd(
+      "fd",
+      [
+        "--base-directory",
+        baseDir,
+        "--type",
+        "f",
+        "--type",
+        "d",
+        "--hidden",
+        "--exclude",
+        ".git",
+        "--max-results",
+        "50",
+        "--full-path",
+        prefix,
+      ],
+      prefix,
+      baseDir,
+    );
+  } catch {
+    // fd not available
+  }
+
+  // Fallback: rg --files (slower but available on most systems)
+  try {
+    return fuzzyWithCmd(
+      "rg",
+      ["--files", "--color", "never", "--no-ignore-parent"],
+      prefix,
+      baseDir,
+    );
+  } catch {
+    // rg not available
+  }
+
+  // Last resort: list current directory
+  return listDirCompletions(baseDir, baseDir);
+}
+
+function getOpenCompletions(
+  issues: SonarIssue[] | undefined,
+  mode: "STANDARD" | "MQR" | undefined,
+  current: string,
+): AutocompleteItem[] | null {
+  const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
+    const lineSuffix = issue.line ? `:${issue.line}` : "";
+    return {
+      value: String(index + 1),
+      label: String(index + 1),
+      description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
+    };
+  });
+  const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
+  const filtered = filterAutocompleteItems(suggestions, current);
+  return filtered.length > 0 ? filtered : null;
+}
+
+async function getFilterCompletions(
+  current: string,
+  mode: "STANDARD" | "MQR" | undefined,
+  cwd: string | undefined,
+  serverUrl: string | undefined,
+  token: string | undefined,
+  projectKey: string | undefined,
+): Promise<AutocompleteItem[] | null> {
+  if (current.startsWith("in:") && cwd) {
+    return getInPathCompletions(current.slice(3), cwd);
+  }
+  if (
+    (current.startsWith("rule:") || current.startsWith("rules:")) &&
+    serverUrl &&
+    projectKey
+  ) {
+    const query = current.split(":").slice(1).join(":");
+    const ruleItems = await fetchRuleAutocompleteCompletions(
+      serverUrl,
+      token,
+      projectKey,
+      query,
+    );
+    const staticSuggestions = createFilterCompletionList(mode);
+    const filtered = filterAutocompleteItems(staticSuggestions, current);
+    const combined = [
+      ...(filtered.length > 0 ? filtered : []),
+      ...(ruleItems ?? []),
+    ];
+    return combined.length > 0 ? combined : null;
+  }
+  const suggestions = createFilterCompletionList(mode);
+  const filtered = filterAutocompleteItems(suggestions, current);
+  return filtered.length > 0 ? filtered : null;
+}
+
+export async function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
   mode?: "STANDARD" | "MQR",
-): AutocompleteItem[] | null {
+  cwd?: string,
+  serverUrl?: string,
+  token?: string,
+  projectKey?: string,
+): Promise<AutocompleteItem[] | null> {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
   const commandMatches = SONAR_COMMANDS.filter((item) =>
@@ -168,23 +450,18 @@ export function sonarArgumentCompletions(
   }
 
   if (lowerCommand === "open") {
-    const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
-      const lineSuffix = issue.line ? `:${issue.line}` : "";
-      return {
-        value: String(index + 1),
-        label: String(index + 1),
-        description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
-      };
-    });
-    const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
-    const filtered = filterAutocompleteItems(suggestions, current);
-    return filtered.length > 0 ? filtered : null;
+    return getOpenCompletions(issues, mode, current);
   }
 
   if (lowerCommand === "analyze" || lowerCommand === "issues") {
-    const suggestions = createFilterCompletionList(mode);
-    const filtered = filterAutocompleteItems(suggestions, current);
-    return filtered.length > 0 ? filtered : null;
+    return getFilterCompletions(
+      current,
+      mode,
+      cwd,
+      serverUrl,
+      token,
+      projectKey,
+    );
   }
 
   if (
@@ -218,7 +495,12 @@ export type ParsedSonarCommand =
       filters?: SonarIssueFetchOptions;
     }
   | { action: "metrics"; targetInput?: string }
-  | { action: "duplications"; targetInput?: string; issueIndex?: number };
+  | {
+      action: "duplications";
+      targetInput?: string;
+      issueIndex?: number;
+      filters?: SonarIssueFetchOptions;
+    };
 
 export function parseCommandArgs(args: string): ParsedSonarCommand {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -273,6 +555,9 @@ export function helpText(): string {
     "Filters:",
     "  /sonarqube issues be CRITICAL",
     "  /sonarqube issues be severity:CRITICAL status:OPEN",
+    "  /sonarqube issues be rule:S1192",
+    "  /sonarqube issues in:src/api.ts",
+    "  /sonarqube issues in:src/",
     "  /sonarqube issues be quality:RELIABILITY",
     "  /sonarqube issues be quality:SECURITY impactSeverity:HIGH",
     "",
@@ -286,6 +571,7 @@ export function helpText(): string {
     "Defaults:",
     "  config is stored in .pi/sonarqube.json",
     "  use project paths directly (no alias needed)",
+    "  issue and duplication browsers search file, rule, severity, status, message, and stats",
   ].join("\n");
 }
 

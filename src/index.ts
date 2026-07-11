@@ -116,6 +116,12 @@ const SonarToolParams = Type.Object({
       Type.String({ description: "Impact severity to fetch (e.g. HIGH)" }),
     ),
   ),
+  pathScope: Type.Optional(
+    Type.String({
+      description:
+        "Scope issues to a specific file or directory path (e.g. src/api.ts or src/). Use this instead of the `path` parameter for file-level filtering.",
+    }),
+  ),
 });
 
 // ── State restoration ───────────────────────────────────────────────────────
@@ -150,6 +156,7 @@ async function analyzeProject(
   filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState> {
   const config = await resolveConfig(ctx, inputPath);
+  _cachedConfig = { serverUrl: config.serverUrl, projectKey: config.projectKey, token: config.token };
   const baseDirStat = await stat(config.baseDir).catch(() => undefined);
   if (!baseDirStat?.isDirectory()) {
     throw new Error(`Project directory not found: ${config.baseDir}`);
@@ -183,6 +190,7 @@ async function analyzeProject(
       config.projectKey,
       ctx.signal,
       normalizedFilters,
+      config.baseDir,
     );
 
     analysisUi.setPhase("Fetching metrics...");
@@ -385,6 +393,21 @@ function renderIssueListResult(
 
 // ── Extension entrypoint ────────────────────────────────────────────────────
 
+// ponytail: lazy config cache so rule autocomplete can fetch from the server
+let _cachedConfig: { serverUrl: string; projectKey: string; token?: string } | undefined;
+
+async function cachedServerConfig(cwd: string): Promise<typeof _cachedConfig> {
+  if (!_cachedConfig) {
+    try {
+      const cfg = await resolveConfig({ cwd });
+      _cachedConfig = { serverUrl: cfg.serverUrl, projectKey: cfg.projectKey, token: cfg.token };
+    } catch {
+      // fall through
+    }
+  }
+  return _cachedConfig;
+}
+
 export default function sonarqube(pi: ExtensionAPI) {
   const statesByBaseDir = new Map<string, SonarAnalysisState>();
   let latestState: SonarAnalysisState | undefined;
@@ -418,12 +441,17 @@ export default function sonarqube(pi: ExtensionAPI) {
           const argumentText = match[1] ?? "";
           const { current: currentToken } =
             splitSonarArgumentContext(argumentText);
+          const cfg = await cachedServerConfig(ctx.cwd);
           const extraItems =
-            sonarArgumentCompletions(
+            (await sonarArgumentCompletions(
               argumentText,
               latestState?.issues,
               latestState?.cleanCodeMode,
-            ) ?? [];
+              undefined,
+              cfg?.serverUrl,
+              cfg?.token,
+              cfg?.projectKey,
+            )) ?? [];
           const currentSuggestions = await current.getSuggestions(
             lines,
             cursorLine,
@@ -473,6 +501,7 @@ export default function sonarqube(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
       "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
+      "To scope issues to a specific file or directory, use the `pathScope` parameter (e.g. pathScope: 'src/api.ts') — do not use the `path` parameter for file filtering.",
     ],
     parameters: SonarToolParams,
 
@@ -485,6 +514,7 @@ export default function sonarqube(pi: ExtensionAPI) {
           rules: params.rules,
           softwareQualities: params.softwareQualities,
           impactSeverities: params.impactSeverities,
+          pathScope: params.pathScope,
         });
         assertFiltersNotAmbiguous(filters);
 
@@ -615,12 +645,18 @@ export default function sonarqube(pi: ExtensionAPI) {
   pi.registerCommand("sonarqube", {
     description:
       "Run a local SonarQube analysis, browse the latest issues, or init project config",
-    getArgumentCompletions: (argumentPrefix) =>
-      sonarArgumentCompletions(
+    getArgumentCompletions: async (argumentPrefix) => {
+      const cfg = await cachedServerConfig(process.cwd());
+      return sonarArgumentCompletions(
         argumentPrefix,
         latestState?.issues,
         latestState?.cleanCodeMode,
-      ),
+        process.cwd(),
+        cfg?.serverUrl,
+        cfg?.token,
+        cfg?.projectKey,
+      );
+    },
     handler: async (args, ctx) => {
       try {
         const parsed = parseCommandArgs(args);
@@ -653,6 +689,7 @@ export default function sonarqube(pi: ExtensionAPI) {
               ctx,
               parsed.targetInput,
               parsed.issueIndex,
+              parsed.filters,
             );
             return;
           default:
@@ -693,38 +730,52 @@ async function commandAnalyze(
   }
 }
 
-async function commandMetrics(
-  ctx: ExtensionCommandContext,
-  targetInput?: string,
-): Promise<void> {
-  const config = await resolveConfig(ctx, targetInput);
+async function loadMetricsData(
+  config: SonarProjectConfig,
+  signal?: AbortSignal,
+): Promise<{
+  cleanCodeMode: Awaited<ReturnType<typeof fetchCleanCodeMode>>;
+  measures: Awaited<ReturnType<typeof fetchDuplicationMeasures>>;
+  issueCounts: Awaited<ReturnType<typeof fetchIssueSeverityCounts>>;
+  qualityCounts: Awaited<ReturnType<typeof fetchIssueQualityCounts>>;
+} | null> {
   const cleanCodeMode = await fetchCleanCodeMode(
     config.serverUrl,
     config.token,
-    ctx.signal,
+    signal,
   );
   const [measures, issueCounts, qualityCounts] = await Promise.all([
     fetchDuplicationMeasures(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
     ),
     fetchIssueSeverityCounts(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
       cleanCodeMode,
     ),
     fetchIssueQualityCounts(
       config.serverUrl,
       config.token,
       config.projectKey,
-      ctx.signal,
+      signal,
     ),
   ]);
-  if (!measures && !issueCounts && !qualityCounts) {
+  if (!measures && !issueCounts && !qualityCounts) return null;
+  return { cleanCodeMode, measures, issueCounts, qualityCounts };
+}
+
+async function commandMetrics(
+  ctx: ExtensionCommandContext,
+  targetInput?: string,
+): Promise<void> {
+  const config = await resolveConfig(ctx, targetInput);
+  const metrics = await loadMetricsData(config, ctx.signal);
+  if (!metrics) {
     if (ctx.hasUI) {
       ctx.ui.notify(
         `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
@@ -735,10 +786,10 @@ async function commandMetrics(
   }
   const text = formatMetricsOutput({
     projectKey: config.projectKey,
-    measures,
-    issueCounts,
-    issueQualityCounts: qualityCounts,
-    cleanCodeMode,
+    measures: metrics.measures,
+    issueCounts: metrics.issueCounts,
+    issueQualityCounts: metrics.qualityCounts,
+    cleanCodeMode: metrics.cleanCodeMode,
   });
   if (ctx.hasUI) {
     ctx.ui.notify(text, "info");
@@ -750,6 +801,7 @@ async function commandDuplications(
   ctx: ExtensionCommandContext,
   targetInput?: string,
   fileIndex?: number,
+  filters?: SonarIssueFetchOptions,
 ): Promise<void> {
   const config = await resolveConfig(ctx, targetInput);
   let files: FileDuplication[];
@@ -759,6 +811,8 @@ async function commandDuplications(
       config.token,
       config.projectKey,
       ctx.signal,
+      filters?.pathScope,
+      config.baseDir,
     );
   } catch (error) {
     const msg = sonarErrorMessage(error);
@@ -782,7 +836,7 @@ async function commandDuplications(
     await showDuplicationDrillDown(ctx, config, files, fileIndex);
     return;
   }
-  await showDuplicationListOrBrowser(ctx, config, files);
+  await showDuplicationListOrBrowser(ctx, config, files, filters);
 }
 
 async function showDuplicationDrillDown(
@@ -819,12 +873,14 @@ async function showDuplicationListOrBrowser(
   ctx: ExtensionCommandContext,
   config: SonarProjectConfig,
   files: FileDuplication[],
+  filters?: SonarIssueFetchOptions,
 ): Promise<void> {
   if (ctx.mode !== "tui") {
     ctx.ui.notify(formatDuplicationsList(files), "info");
     return;
   }
-  const choice = await showDuplicationBrowser(ctx, files);
+  const scopeLabel = filters?.pathScope ? issueFilterLabel(filters) : undefined;
+  const choice = await showDuplicationBrowser(ctx, files, scopeLabel);
   if (choice == null) return;
   const file = files[choice];
   const groups = await fetchFileDuplicationBlocks(
@@ -1060,33 +1116,8 @@ async function toolMetrics(
       details: { error: "Project not configured." },
     };
   }
-  const cleanCodeMode = await fetchCleanCodeMode(
-    config.serverUrl,
-    config.token,
-    ctx.signal,
-  );
-  const [measures, issueCounts, qualityCounts] = await Promise.all([
-    fetchDuplicationMeasures(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-    ),
-    fetchIssueSeverityCounts(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-      cleanCodeMode,
-    ),
-    fetchIssueQualityCounts(
-      config.serverUrl,
-      config.token,
-      config.projectKey,
-      ctx.signal,
-    ),
-  ]);
-  if (!measures && !issueCounts && !qualityCounts) {
+  const metrics = await loadMetricsData(config, ctx.signal);
+  if (!metrics) {
     return {
       content: [
         {
@@ -1101,19 +1132,19 @@ async function toolMetrics(
   }
   const text = formatMetricsOutput({
     projectKey: config.projectKey,
-    measures,
-    issueCounts,
-    issueQualityCounts: qualityCounts,
-    cleanCodeMode,
+    measures: metrics.measures,
+    issueCounts: metrics.issueCounts,
+    issueQualityCounts: metrics.qualityCounts,
+    cleanCodeMode: metrics.cleanCodeMode,
   });
   return {
     content: [{ type: "text", text }],
     details: {
       projectKey: config.projectKey,
-      measures,
-      issueCounts,
-      issueQualityCounts: qualityCounts,
-      cleanCodeMode,
+      measures: metrics.measures,
+      issueCounts: metrics.issueCounts,
+      issueQualityCounts: metrics.qualityCounts,
+      cleanCodeMode: metrics.cleanCodeMode,
     },
   };
 }

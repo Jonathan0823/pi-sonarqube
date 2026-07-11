@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import type {
   SonarIssue,
   SonarAnalysisState,
@@ -114,13 +114,17 @@ export function normalizeIssueFilters(
     rules: normalizeIssueList(filters?.rules),
     softwareQualities: normalizeIssueList(filters?.softwareQualities, true),
     impactSeverities: normalizeIssueList(filters?.impactSeverities, true),
+    pathScope: filters?.pathScope,
+    componentKeys: filters?.componentKeys,
   };
   return normalized.severities ||
     normalized.statuses ||
     normalized.types ||
     normalized.rules ||
     normalized.softwareQualities ||
-    normalized.impactSeverities
+    normalized.impactSeverities ||
+    normalized.pathScope ||
+    normalized.componentKeys?.length
     ? normalized
     : undefined;
 }
@@ -178,6 +182,9 @@ export function parseIssueFilterToken(
       case "impactseverity":
       case "impactseverities":
         return { impactSeverities: values.map((v) => v.toUpperCase()) };
+      case "in":
+      case "path":
+        return { pathScope: values[0] };
       default:
         return undefined;
     }
@@ -238,30 +245,26 @@ export function parseSonarIssueArgs(
   return { targetInput, issueIndex, filters: mergeFilters(...filters) };
 }
 
+function mergeFilterField<T>(
+  merged: T[] | undefined,
+  incoming?: T[],
+): T[] | undefined {
+  return incoming?.length ? [...(merged ?? []), ...incoming] : merged;
+}
+
 function mergeFilters(
   ...filters: Array<Partial<SonarIssueFetchOptions> | undefined>
 ): SonarIssueFetchOptions | undefined {
   const merged: SonarIssueFetchOptions = {};
   for (const filter of filters) {
     if (!filter) continue;
-    if (filter.severities?.length)
-      merged.severities = [...(merged.severities ?? []), ...filter.severities];
-    if (filter.statuses?.length)
-      merged.statuses = [...(merged.statuses ?? []), ...filter.statuses];
-    if (filter.types?.length)
-      merged.types = [...(merged.types ?? []), ...filter.types];
-    if (filter.rules?.length)
-      merged.rules = [...(merged.rules ?? []), ...filter.rules];
-    if (filter.softwareQualities?.length)
-      merged.softwareQualities = [
-        ...(merged.softwareQualities ?? []),
-        ...filter.softwareQualities,
-      ];
-    if (filter.impactSeverities?.length)
-      merged.impactSeverities = [
-        ...(merged.impactSeverities ?? []),
-        ...filter.impactSeverities,
-      ];
+    merged.severities = mergeFilterField(merged.severities, filter.severities);
+    merged.statuses = mergeFilterField(merged.statuses, filter.statuses);
+    merged.types = mergeFilterField(merged.types, filter.types);
+    merged.rules = mergeFilterField(merged.rules, filter.rules);
+    merged.softwareQualities = mergeFilterField(merged.softwareQualities, filter.softwareQualities);
+    merged.impactSeverities = mergeFilterField(merged.impactSeverities, filter.impactSeverities);
+    if (filter.pathScope) merged.pathScope = filter.pathScope;
   }
   return normalizeIssueFilters(merged);
 }
@@ -279,7 +282,21 @@ export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
     parts.push(`qualities=${filters.softwareQualities.join(",")}`);
   if (filters.impactSeverities?.length)
     parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
+  if (filters.pathScope) parts.push(`in:${filters.pathScope}`);
   return parts.join(" • ");
+}
+
+export function resolvePathScope(
+  baseDir: string,
+  projectKey: string,
+  pathScope: string,
+): string {
+  const raw = pathScope.replace(/^@/, "");
+  const absPath = resolve(baseDir, raw);
+  const relPath = relative(baseDir, absPath);
+  if (relPath === "" || relPath === ".") return projectKey;
+  const cleanRel = relPath.replace(/[\\/]+$/, "");
+  return `${projectKey}:${cleanRel}`;
 }
 
 function severitySortRank(severity: string): number {
@@ -505,6 +522,11 @@ function buildIssueSearchUrl(
       "impactSeverities",
       filters.impactSeverities.join(","),
     );
+  if (filters?.componentKeys?.length)
+    url.searchParams.set(
+      "componentKeys",
+      filters.componentKeys.join(","),
+    );
   return url.toString();
 }
 
@@ -574,9 +596,19 @@ export async function fetchIssues(
   projectKey: string,
   signal?: AbortSignal,
   filters?: SonarIssueFetchOptions,
+  baseDir?: string,
 ): Promise<SonarIssue[]> {
   assertFiltersNotAmbiguous(filters);
   const normalizedFilters = normalizeIssueFilters(filters);
+
+  if (normalizedFilters?.pathScope && baseDir) {
+    const componentKey = resolvePathScope(
+      baseDir,
+      projectKey,
+      normalizedFilters.pathScope,
+    );
+    normalizedFilters.componentKeys = [componentKey];
+  }
   const issues: SonarIssue[] = [];
   const ruleNames = new Map<string, string | undefined>();
   let page = 1;
@@ -612,6 +644,62 @@ export async function fetchIssues(
   }
 
   return issues;
+}
+
+// ── Rule autocomplete helpers ───────────────────────────────────────────
+
+export async function fetchProjectProfiles(
+  serverUrl: string,
+  token: string | undefined,
+  projectKey: string,
+  signal?: AbortSignal,
+): Promise<Array<{key: string; language: string; name: string}>> {
+  try {
+    const result = await fetchJson<{
+      profiles: Array<{key?: string; language?: string; name?: string}>;
+    }>(
+      `${serverUrl}/api/qualityprofiles/search?project=${encodeURIComponent(projectKey)}`,
+      token,
+      signal,
+    );
+    return (result.profiles ?? []).map(p => ({
+      key: p.key ?? '',
+      language: p.language ?? '',
+      name: p.name ?? '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchRuleSearch(
+  serverUrl: string,
+  token: string | undefined,
+  query: string,
+  languages?: string[],
+  signal?: AbortSignal,
+): Promise<Array<{key: string; name?: string}>> {
+  try {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    params.set("ps", "20");
+    params.set("p", "1");
+    if (languages?.length) params.set("languages", languages.join(","));
+
+    const result = await fetchJson<{
+      rules: Array<{key?: string; name?: string}>;
+    }>(
+      `${serverUrl}/api/rules/search?${params.toString()}`,
+      token,
+      signal,
+    );
+    return (result.rules ?? []).map(r => ({
+      key: r.key ?? '',
+      name: r.name,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchRuleName(
@@ -785,6 +873,8 @@ export async function fetchFileDuplications(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
+  pathScope?: string,
+  baseDir?: string,
 ): Promise<FileDuplication[]> {
   const treeUrl = `${serverUrl}/api/measures/component_tree?component=${encodeURIComponent(projectKey)}&qualifiers=FIL&metricKeys=duplicated_lines,duplicated_lines_density,duplicated_blocks&ps=500`;
   const treeResult = await fetchJson<{
@@ -796,7 +886,7 @@ export async function fetchFileDuplications(
     }>;
   }>(treeUrl, token, signal);
 
-  const results = (treeResult.components ?? [])
+  let results = (treeResult.components ?? [])
     .map((component) => {
       const measures = component.measures ?? [];
       const getValue = (metric: string): number => {
@@ -817,15 +907,22 @@ export async function fetchFileDuplications(
         duplicatedBlocks,
       };
     })
-    .filter((f): f is FileDuplication => f !== null)
-    .sort((left, right) => {
-      const densityDiff =
-        right.duplicatedLinesDensity - left.duplicatedLinesDensity;
-      if (densityDiff !== 0) return densityDiff;
-      const linesDiff = right.duplicatedLines - left.duplicatedLines;
-      if (linesDiff !== 0) return linesDiff;
-      return left.filePath.localeCompare(right.filePath);
-    });
+    .filter((f): f is FileDuplication => f !== null);
+
+  if (pathScope && baseDir) {
+    const absPath = resolve(baseDir, pathScope);
+    const relPrefix = relative(baseDir, absPath);
+    results = results.filter((f) => f.filePath.startsWith(relPrefix));
+  }
+
+  results.sort((left, right) => {
+    const densityDiff =
+      right.duplicatedLinesDensity - left.duplicatedLinesDensity;
+    if (densityDiff !== 0) return densityDiff;
+    const linesDiff = right.duplicatedLines - left.duplicatedLines;
+    if (linesDiff !== 0) return linesDiff;
+    return left.filePath.localeCompare(right.filePath);
+  });
 
   return results;
 }

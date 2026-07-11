@@ -9,7 +9,7 @@ import {
   issueFilterLabel,
   parseIssueFilterToken,
 } from "../dist/api.js";
-import { formatMetricsOutput } from "../dist/commands.js";
+import { formatMetricsOutput, sonarArgumentCompletions } from "../dist/commands.js";
 
 function mockResponse(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
@@ -62,6 +62,14 @@ test("parses MQR filters and rejects mixed families", () => {
       softwareQualities: ["SECURITY"],
     }),
   );
+});
+
+test("issue autocomplete includes rule filter keys", async () => {
+  const items = (await sonarArgumentCompletions("issues ru")) ?? [];
+  const values = items.map((item) => item.value);
+
+  assert.ok(values.includes("rule:"));
+  assert.ok(values.includes("rules:"));
 });
 
 test("formats metrics with standard severity labels", () => {

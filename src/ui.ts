@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Input, Key, matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type {
@@ -159,59 +159,177 @@ export function startAnalysisUi(
   };
 }
 
-// ── Issue Browser UI component ──────────────────────────────────────────────
+// ── Searchable browser helpers ─────────────────────────────────────────────
 
-export class IssueBrowser {
+function normalizeSearchQuery(query: string): string[] {
+  return query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function matchesSearchQuery(haystack: string, query: string): boolean {
+  const tokens = normalizeSearchQuery(query);
+  if (tokens.length === 0) return true;
+  const text = haystack.toLowerCase();
+  return tokens.every((token) => text.includes(token));
+}
+
+function filterSearchItems<T>(
+  items: readonly T[],
+  query: string,
+  searchText: (item: T) => string,
+): T[] {
+  if (!query.trim()) return [...items];
+  return items.filter((item) => matchesSearchQuery(searchText(item), query));
+}
+
+interface SearchableBrowserConfig<T> {
+  title: string;
+  subtitle: (query: string, totalCount: number, filteredCount: number) => string;
+  searchHint: string;
+  emptyMessage: string;
+  footer: string;
+  pageSize: number;
+  searchText: (item: T) => string;
+  renderItem: (item: T, index: number, isSelected: boolean) => string;
+}
+
+class SearchableListBrowser<T> implements Focusable {
   private selected = 0;
+  private query = "";
+  private filteredItems: T[];
+  private _focused = false;
+  private readonly searchInput = new Input();
 
   constructor(
-    private readonly state: SonarAnalysisState,
+    private readonly items: readonly T[],
     private readonly theme: Theme,
     private readonly done: (result: number | null) => void,
-  ) {}
+    private readonly config: SearchableBrowserConfig<T>,
+  ) {
+    this.filteredItems = [...items];
+  }
 
-  invalidate(): void {} // NOSONAR - required by TUI interface
+  get focused(): boolean {
+    return this._focused;
+  }
+
+  set focused(value: boolean) {
+    this._focused = value;
+    this.searchInput.focused = value;
+  }
+
+  invalidate(): void {
+    this.searchInput.invalidate();
+  }
 
   handleInput(data: string): void {
-    this.selected = handleListBrowserInput(
-      data,
-      this.selected,
-      this.state.issues.length,
-      this.done,
-    );
+    if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
+      this.done(null);
+      return;
+    }
+
+    if (matchesKey(data, Key.up)) {
+      this.selected = Math.max(0, this.selected - 1);
+      return;
+    }
+
+    if (matchesKey(data, Key.down)) {
+      this.selected = Math.min(
+        Math.max(0, this.filteredItems.length - 1),
+        this.selected + 1,
+      );
+      return;
+    }
+
+    if (matchesKey(data, Key.enter)) {
+      if (this.filteredItems.length > 0) this.done(this.selected);
+      return;
+    }
+
+    this.searchInput.handleInput(data);
+    this.syncFilter();
   }
 
   render(width: number): string[] {
-    const filterSuffix = this.state.filters
-      ? ` • ${issueFilterLabel(this.state.filters)}`
-      : "";
-    return renderListBrowser(this.theme, width, {
+    const subtitle = this.config.subtitle(
+      this.query,
+      this.items.length,
+      this.filteredItems.length,
+    );
+    return [
+      truncateToWidth(this.theme.fg("dim", this.config.searchHint), width),
+      ...this.searchInput.render(width),
+      "",
+      ...renderListBrowser(this.theme, width, {
+        title: this.config.title,
+        subtitle,
+        items: this.filteredItems,
+        selected: this.selected,
+        pageSize: this.config.pageSize,
+        emptyMessage: this.config.emptyMessage,
+        footer: this.config.footer,
+        renderItem: this.config.renderItem,
+      }),
+    ];
+  }
+
+  private syncFilter(): void {
+    const nextQuery = this.searchInput.getValue();
+    if (nextQuery === this.query) return;
+    this.query = nextQuery;
+    this.filteredItems = filterSearchItems(
+      this.items,
+      nextQuery,
+      this.config.searchText,
+    );
+    this.selected = 0;
+  }
+}
+
+export class IssueBrowser extends SearchableListBrowser<SonarIssue> {
+  constructor(
+    state: SonarAnalysisState,
+    theme: Theme,
+    done: (result: number | null) => void,
+  ) {
+    const filterSuffix = state.filters ? ` • ${issueFilterLabel(state.filters)}` : "";
+    super(state.issues, theme, done, {
       title: "SonarQube Issues",
-      subtitle: `${this.state.projectKey} • ${this.state.totalIssues} issue(s)${filterSuffix}`,
-      items: this.state.issues,
-      selected: this.selected,
-      pageSize: 20,
-      emptyMessage: "No open issues found.",
+      subtitle: (_query, totalCount, filteredCount) =>
+        `${state.projectKey} • ${totalCount} issue(s) • ${filteredCount} match(es)${filterSuffix}`,
+      searchHint: "Search issues by file, rule, severity, status, or message",
+      emptyMessage: "No matching issues found.",
       footer: "Up/Down to move, Enter to preview, Esc to close",
+      pageSize: 20,
+      searchText: (issue) =>
+        [
+          issue.filePath,
+          issue.rule,
+          issue.ruleName ?? "",
+          issue.severity,
+          issue.status ?? "",
+          issue.message,
+        ].join(" "),
       renderItem: (issue, issueIndex, isSelected) => {
         const marker = isSelected
-          ? this.theme.fg("accent", ">")
-          : this.theme.fg("dim", " ");
-        const location = issue.line
-          ? `${issue.filePath}:${issue.line}`
-          : issue.filePath;
+          ? theme.fg("accent", ">")
+          : theme.fg("dim", " ");
+        const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
         const rule = issue.ruleName
           ? `${issue.rule} (${issue.ruleName})`
           : issue.rule;
-        const severity = severityColor(this.theme, issue.severity);
+        const severity = severityColor(theme, issue.severity);
         return [
           marker,
           String(issueIndex + 1).padStart(2, " "),
           ".",
           severity,
-          this.theme.fg("accent", location),
-          this.theme.fg("muted", rule),
-          this.theme.fg("text", `— ${issue.message}`),
+          theme.fg("accent", location),
+          theme.fg("muted", rule),
+          theme.fg("text", `— ${issue.message}`),
         ].join(" ");
       },
     });
@@ -232,28 +350,6 @@ function severityColor(theme: Theme, severity: string): string {
     default:
       return theme.fg("muted", severity);
   }
-}
-
-function handleListBrowserInput(
-  data: string,
-  selected: number,
-  count: number,
-  done: (result: number | null) => void,
-): number {
-  if (matchesKey(data, Key.escape) || matchesKey(data, "ctrl+c")) {
-    done(null);
-    return selected;
-  }
-  if (matchesKey(data, Key.up)) {
-    return Math.max(0, selected - 1);
-  }
-  if (matchesKey(data, Key.down)) {
-    return Math.min(Math.max(0, count - 1), selected + 1);
-  }
-  if (matchesKey(data, Key.enter)) {
-    done(selected);
-  }
-  return selected;
 }
 
 function getBrowserWindow(
@@ -334,43 +430,35 @@ function renderListBrowser<T>(
   return lines;
 }
 
-// ── Duplication browser (used by index.ts) ─────────────────────────────────
-
-export class DuplicationBrowser {
-  private selected = 0;
-
+export class DuplicationBrowser extends SearchableListBrowser<FileDuplication> {
   constructor(
-    private readonly files: FileDuplication[],
-    private readonly theme: Theme,
-    private readonly done: (result: number | null) => void,
-  ) {}
-
-  invalidate(): void {} // NOSONAR - required by TUI interface
-
-  handleInput(data: string): void {
-    this.selected = handleListBrowserInput(
-      data,
-      this.selected,
-      this.files.length,
-      this.done,
-    );
-  }
-
-  render(width: number): string[] {
-    return renderListBrowser(this.theme, width, {
+    files: FileDuplication[],
+    theme: Theme,
+    done: (result: number | null) => void,
+    scopeLabel?: string,
+  ) {
+    const scopeSuffix = scopeLabel ? ` • ${scopeLabel}` : "";
+    super(files, theme, done, {
       title: "SonarQube Duplications",
-      subtitle: `${this.files.length} file(s) with duplicate code`,
-      items: this.files,
-      selected: this.selected,
-      pageSize: 15,
-      emptyMessage: "No duplicate code found.",
+      subtitle: (_query, totalCount, filteredCount) =>
+        `${totalCount} file(s) with duplicate code${scopeSuffix} • ${filteredCount} match(es)`,
+      searchHint: "Search duplications by file path, duplicated lines, blocks, or density",
+      emptyMessage: "No matching duplicated files found.",
       footer: "Up/Down to move, Enter for details, Esc to close",
+      pageSize: 15,
+      searchText: (file) =>
+        [
+          file.filePath,
+          `dup%=${file.duplicatedLinesDensity.toFixed(1)}`,
+          `blocks=${file.duplicatedBlocks}`,
+          `lines=${file.duplicatedLines}`,
+        ].join(" "),
       renderItem: (file, index, isSelected) => {
         const marker = isSelected
-          ? this.theme.fg("accent", ">")
-          : this.theme.fg("dim", " ");
+          ? theme.fg("accent", ">")
+          : theme.fg("dim", " ");
         const detail = `dup%=${file.duplicatedLinesDensity.toFixed(1)}  blocks=${file.duplicatedBlocks}  lines=${file.duplicatedLines}`;
-        return `${marker} ${String(index + 1).padStart(2, " ")}. ${this.theme.fg("accent", file.filePath)}  ${this.theme.fg("dim", detail)}`;
+        return `${marker} ${String(index + 1).padStart(2, " ")}. ${theme.fg("accent", file.filePath)}  ${theme.fg("dim", detail)}`;
       },
     });
   }
@@ -379,10 +467,12 @@ export class DuplicationBrowser {
 export async function showDuplicationBrowser(
   ctx: ExtensionCommandContext,
   files: FileDuplication[],
+  scopeLabel?: string,
 ): Promise<number | null> {
   if (ctx.mode !== "tui" || files.length === 0) return null;
   return await ctx.ui.custom<number | null>(
-    (_tui, theme, _kb, done) => new DuplicationBrowser(files, theme, done),
+    (_tui, theme, _kb, done) =>
+      new DuplicationBrowser(files, theme, done, scopeLabel),
   );
 }
 
@@ -428,6 +518,7 @@ export async function loadProjectIssuesFromApi(
     config.projectKey,
     ctx.signal,
     normalizedFilters,
+    config.baseDir,
   );
   const cleanCodeMode = await fetchCleanCodeMode(
     config.serverUrl,
