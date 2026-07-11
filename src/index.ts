@@ -29,6 +29,7 @@ import {
   ensureDefaultSonarProjectProperties,
   saveWorkspaceRegistry,
   resolveConfig,
+  loadWorkspaceRegistry,
 } from "./config.js";
 import {
   runScanner,
@@ -70,6 +71,7 @@ import {
   openIssuePreview,
   resolveTargetState,
   showDuplicationBrowser,
+  showWorkspaceBrowser,
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
@@ -719,6 +721,11 @@ async function commandAnalyze(
   filters: SonarIssueFetchOptions | undefined,
   rememberState: (s: SonarAnalysisState) => void,
 ): Promise<void> {
+  if (!targetInput) {
+    const pickResult = await pickWorkspace(ctx);
+    if (pickResult === null) return; // user cancelled
+    targetInput = pickResult;
+  }
   const state = await analyzeProject(pi, ctx, targetInput, filters);
   rememberState(state);
   if (ctx.hasUI) {
@@ -728,6 +735,20 @@ async function commandAnalyze(
       state.issues.length === 0 ? "info" : "warning",
     );
   }
+}
+
+async function pickWorkspace(
+  ctx: ExtensionContext,
+): Promise<string | undefined | null> {
+  const { registry } = await loadWorkspaceRegistry(ctx.cwd);
+  const entries = Object.entries(registry.workspaces);
+  if (entries.length === 0) return undefined; // no registry → use cwd
+  if (entries.length === 1) return entries[0][0]; // single → use it directly
+  if (ctx.mode !== "tui") return undefined; // headless → use cwd
+  return await showWorkspaceBrowser(
+    ctx,
+    entries.map(([alias, path]) => ({ alias, path })),
+  );
 }
 
 async function loadMetricsData(
