@@ -29,6 +29,7 @@ import {
   ensureDefaultSonarProjectProperties,
   saveWorkspaceRegistry,
   resolveConfig,
+  loadWorkspaceRegistry,
 } from "./config.js";
 import {
   runScanner,
@@ -70,6 +71,7 @@ import {
   openIssuePreview,
   resolveTargetState,
   showDuplicationBrowser,
+  showWorkspaceBrowser,
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
@@ -156,7 +158,11 @@ async function analyzeProject(
   filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState> {
   const config = await resolveConfig(ctx, inputPath);
-  _cachedConfig = { serverUrl: config.serverUrl, projectKey: config.projectKey, token: config.token };
+  _cachedConfig = {
+    serverUrl: config.serverUrl,
+    projectKey: config.projectKey,
+    token: config.token,
+  };
   const baseDirStat = await stat(config.baseDir).catch(() => undefined);
   if (!baseDirStat?.isDirectory()) {
     throw new Error(`Project directory not found: ${config.baseDir}`);
@@ -394,13 +400,18 @@ function renderIssueListResult(
 // ── Extension entrypoint ────────────────────────────────────────────────────
 
 // ponytail: lazy config cache so rule autocomplete can fetch from the server
-let _cachedConfig: { serverUrl: string; projectKey: string; token?: string } | undefined;
+let _cachedConfig:
+  { serverUrl: string; projectKey: string; token?: string } | undefined;
 
 async function cachedServerConfig(cwd: string): Promise<typeof _cachedConfig> {
   if (!_cachedConfig) {
     try {
       const cfg = await resolveConfig({ cwd });
-      _cachedConfig = { serverUrl: cfg.serverUrl, projectKey: cfg.projectKey, token: cfg.token };
+      _cachedConfig = {
+        serverUrl: cfg.serverUrl,
+        projectKey: cfg.projectKey,
+        token: cfg.token,
+      };
     } catch {
       // fall through
     }
@@ -719,6 +730,11 @@ async function commandAnalyze(
   filters: SonarIssueFetchOptions | undefined,
   rememberState: (s: SonarAnalysisState) => void,
 ): Promise<void> {
+  if (!targetInput) {
+    const pickResult = await pickWorkspace(ctx);
+    if (pickResult === null) return; // user cancelled
+    targetInput = pickResult;
+  }
   const state = await analyzeProject(pi, ctx, targetInput, filters);
   rememberState(state);
   if (ctx.hasUI) {
@@ -728,6 +744,20 @@ async function commandAnalyze(
       state.issues.length === 0 ? "info" : "warning",
     );
   }
+}
+
+async function pickWorkspace(
+  ctx: ExtensionContext,
+): Promise<string | undefined | null> {
+  const { registry } = await loadWorkspaceRegistry(ctx.cwd);
+  const entries = Object.entries(registry.workspaces);
+  if (entries.length === 0) return undefined; // no registry → use cwd
+  if (entries.length === 1) return entries[0][0]; // single → use it directly
+  if (ctx.mode !== "tui") return undefined; // headless → use cwd
+  return await showWorkspaceBrowser(
+    ctx,
+    entries.map(([alias, path]) => ({ alias, path })),
+  );
 }
 
 async function loadMetricsData(

@@ -17,11 +17,16 @@ import {
   SONAR_TYPES,
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
+  CleanCodeMode,
 } from "./types.js";
 import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { looksLikePath } from "./config.js";
+import {
+  looksLikePath,
+  loadWorkspaceRegistry,
+  knownTargets,
+} from "./config.js";
 import {
   parseSonarIssueArgs,
   issueFilterLabel,
@@ -118,9 +123,7 @@ export function splitSonarArgumentContext(argumentText: string): {
   };
 }
 
-function createFilterCompletionList(
-  mode?: "STANDARD" | "MQR",
-): AutocompleteItem[] {
+function createFilterCompletionList(mode?: CleanCodeMode): AutocompleteItem[] {
   const buildItems = (
     groups: ReadonlyArray<
       readonly [string, readonly string[], string, boolean]
@@ -370,7 +373,7 @@ function getInPathCompletions(
 
 function getOpenCompletions(
   issues: SonarIssue[] | undefined,
-  mode: "STANDARD" | "MQR" | undefined,
+  mode: CleanCodeMode | undefined,
   current: string,
 ): AutocompleteItem[] | null {
   const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
@@ -388,7 +391,7 @@ function getOpenCompletions(
 
 async function getFilterCompletions(
   current: string,
-  mode: "STANDARD" | "MQR" | undefined,
+  mode: CleanCodeMode | undefined,
   cwd: string | undefined,
   serverUrl: string | undefined,
   token: string | undefined,
@@ -422,10 +425,51 @@ async function getFilterCompletions(
   return filtered.length > 0 ? filtered : null;
 }
 
+async function getAnalyzeCompletions(
+  current: string,
+  mode: CleanCodeMode | undefined,
+  cwd: string | undefined,
+  serverUrl: string | undefined,
+  token: string | undefined,
+  projectKey: string | undefined,
+): Promise<AutocompleteItem[] | null> {
+  const [filterItems, aliasItems] = await Promise.all([
+    getFilterCompletions(current, mode, cwd, serverUrl, token, projectKey),
+    cwd ? getWorkspaceAliases(cwd, current) : Promise.resolve(null),
+  ]);
+  if (!filterItems && !aliasItems) return null;
+  const combined: AutocompleteItem[] = [
+    ...(aliasItems ?? []),
+    ...(filterItems ?? []),
+  ];
+  return combined.length > 0 ? combined : null;
+}
+
+async function getWorkspaceAliases(
+  cwd: string,
+  current: string,
+): Promise<AutocompleteItem[] | null> {
+  try {
+    const { registry } = await loadWorkspaceRegistry(cwd);
+    const aliases = knownTargets(registry);
+    if (aliases.length === 0) return null;
+    return filterAutocompleteItems(
+      aliases.map((alias) => ({
+        value: alias,
+        label: alias,
+        description: registry.workspaces[alias],
+      })),
+      current,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
-  mode?: "STANDARD" | "MQR",
+  mode?: CleanCodeMode,
   cwd?: string,
   serverUrl?: string,
   token?: string,
@@ -453,7 +497,18 @@ export async function sonarArgumentCompletions(
     return getOpenCompletions(issues, mode, current);
   }
 
-  if (lowerCommand === "analyze" || lowerCommand === "issues") {
+  if (lowerCommand === "analyze") {
+    return getAnalyzeCompletions(
+      current,
+      mode,
+      cwd,
+      serverUrl,
+      token,
+      projectKey,
+    );
+  }
+
+  if (lowerCommand === "issues") {
     return getFilterCompletions(
       current,
       mode,
@@ -600,7 +655,7 @@ export function formatMetricsOutput(metrics: {
   measures?: SonarDuplicationMeasures;
   issueCounts?: IssueSeverityCounts;
   issueQualityCounts?: IssueQualityCounts;
-  cleanCodeMode?: "STANDARD" | "MQR";
+  cleanCodeMode?: CleanCodeMode;
 }): string {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 

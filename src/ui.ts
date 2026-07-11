@@ -3,7 +3,13 @@ import type {
   ExtensionContext,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { Input, Key, matchesKey, truncateToWidth, type Focusable } from "@earendil-works/pi-tui";
+import {
+  Input,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Focusable,
+} from "@earendil-works/pi-tui";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type {
@@ -162,11 +168,7 @@ export function startAnalysisUi(
 // ── Searchable browser helpers ─────────────────────────────────────────────
 
 function normalizeSearchQuery(query: string): string[] {
-  return query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function matchesSearchQuery(haystack: string, query: string): boolean {
@@ -187,7 +189,11 @@ function filterSearchItems<T>(
 
 interface SearchableBrowserConfig<T> {
   title: string;
-  subtitle: (query: string, totalCount: number, filteredCount: number) => string;
+  subtitle: (
+    query: string,
+    totalCount: number,
+    filteredCount: number,
+  ) => string;
   searchHint: string;
   emptyMessage: string;
   footer: string;
@@ -295,7 +301,9 @@ export class IssueBrowser extends SearchableListBrowser<SonarIssue> {
     theme: Theme,
     done: (result: number | null) => void,
   ) {
-    const filterSuffix = state.filters ? ` • ${issueFilterLabel(state.filters)}` : "";
+    const filterSuffix = state.filters
+      ? ` • ${issueFilterLabel(state.filters)}`
+      : "";
     super(state.issues, theme, done, {
       title: "SonarQube Issues",
       subtitle: (_query, totalCount, filteredCount) =>
@@ -317,7 +325,9 @@ export class IssueBrowser extends SearchableListBrowser<SonarIssue> {
         const marker = isSelected
           ? theme.fg("accent", ">")
           : theme.fg("dim", " ");
-        const location = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
+        const location = issue.line
+          ? `${issue.filePath}:${issue.line}`
+          : issue.filePath;
         const rule = issue.ruleName
           ? `${issue.rule} (${issue.ruleName})`
           : issue.rule;
@@ -442,7 +452,8 @@ export class DuplicationBrowser extends SearchableListBrowser<FileDuplication> {
       title: "SonarQube Duplications",
       subtitle: (_query, totalCount, filteredCount) =>
         `${totalCount} file(s) with duplicate code${scopeSuffix} • ${filteredCount} match(es)`,
-      searchHint: "Search duplications by file path, duplicated lines, blocks, or density",
+      searchHint:
+        "Search duplications by file path, duplicated lines, blocks, or density",
       emptyMessage: "No matching duplicated files found.",
       footer: "Up/Down to move, Enter for details, Esc to close",
       pageSize: 15,
@@ -474,6 +485,48 @@ export async function showDuplicationBrowser(
     (_tui, theme, _kb, done) =>
       new DuplicationBrowser(files, theme, done, scopeLabel),
   );
+}
+
+// ── Workspace selector browser ────────────────────────────────────────────
+
+export class WorkspaceBrowser extends SearchableListBrowser<{
+  alias: string;
+  path: string;
+}> {
+  constructor(
+    workspaces: { alias: string; path: string }[],
+    theme: Theme,
+    done: (result: number | null) => void,
+  ) {
+    super(workspaces, theme, done, {
+      title: "SonarQube Workspaces",
+      subtitle: (_query, totalCount, filteredCount) =>
+        `${totalCount} workspace(s) • ${filteredCount} match(es)`,
+      searchHint: "Search workspaces by alias or path",
+      emptyMessage: "No matching workspaces found.",
+      footer: "Up/Down to move, Enter to select, Esc to cancel",
+      pageSize: 15,
+      searchText: (ws) => `${ws.alias} ${ws.path}`,
+      renderItem: (ws, index, isSelected) => {
+        const marker = isSelected
+          ? theme.fg("accent", ">")
+          : theme.fg("dim", " ");
+        return `${marker} ${String(index + 1).padStart(2, " ")}. ${theme.fg("accent", ws.alias.padEnd(20))}  ${theme.fg("dim", ws.path)}`;
+      },
+    });
+  }
+}
+
+export async function showWorkspaceBrowser(
+  ctx: ExtensionContext,
+  workspaces: { alias: string; path: string }[],
+): Promise<string | null> {
+  if (ctx.mode !== "tui" || workspaces.length === 0) return null;
+  const choice = await ctx.ui.custom<number | null>(
+    (_tui, theme, _kb, done) => new WorkspaceBrowser(workspaces, theme, done),
+  );
+  if (choice == null) return null;
+  return workspaces[choice].alias;
 }
 
 // ── Issue browser / preview helpers (used by index.ts) ──────────────────────

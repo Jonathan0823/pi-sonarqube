@@ -18,18 +18,19 @@ import {
   SONAR_TYPES,
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
+  CleanCodeMode,
 } from "./types.js";
 import { parseProperties } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
 
-const cleanCodeModeCache = new Map<string, "STANDARD" | "MQR">();
+const cleanCodeModeCache = new Map<string, CleanCodeMode>();
 
 export async function fetchCleanCodeMode(
   serverUrl: string,
   token?: string,
   signal?: AbortSignal,
-): Promise<"STANDARD" | "MQR" | undefined> {
+): Promise<CleanCodeMode | undefined> {
   const cached = cleanCodeModeCache.get(serverUrl);
   if (cached) return cached;
   try {
@@ -262,8 +263,14 @@ function mergeFilters(
     merged.statuses = mergeFilterField(merged.statuses, filter.statuses);
     merged.types = mergeFilterField(merged.types, filter.types);
     merged.rules = mergeFilterField(merged.rules, filter.rules);
-    merged.softwareQualities = mergeFilterField(merged.softwareQualities, filter.softwareQualities);
-    merged.impactSeverities = mergeFilterField(merged.impactSeverities, filter.impactSeverities);
+    merged.softwareQualities = mergeFilterField(
+      merged.softwareQualities,
+      filter.softwareQualities,
+    );
+    merged.impactSeverities = mergeFilterField(
+      merged.impactSeverities,
+      filter.impactSeverities,
+    );
     if (filter.pathScope) merged.pathScope = filter.pathScope;
   }
   return normalizeIssueFilters(merged);
@@ -523,10 +530,7 @@ function buildIssueSearchUrl(
       filters.impactSeverities.join(","),
     );
   if (filters?.componentKeys?.length)
-    url.searchParams.set(
-      "componentKeys",
-      filters.componentKeys.join(","),
-    );
+    url.searchParams.set("componentKeys", filters.componentKeys.join(","));
   return url.toString();
 }
 
@@ -653,19 +657,19 @@ export async function fetchProjectProfiles(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
-): Promise<Array<{key: string; language: string; name: string}>> {
+): Promise<Array<{ key: string; language: string; name: string }>> {
   try {
     const result = await fetchJson<{
-      profiles: Array<{key?: string; language?: string; name?: string}>;
+      profiles: Array<{ key?: string; language?: string; name?: string }>;
     }>(
       `${serverUrl}/api/qualityprofiles/search?project=${encodeURIComponent(projectKey)}`,
       token,
       signal,
     );
-    return (result.profiles ?? []).map(p => ({
-      key: p.key ?? '',
-      language: p.language ?? '',
-      name: p.name ?? '',
+    return (result.profiles ?? []).map((p) => ({
+      key: p.key ?? "",
+      language: p.language ?? "",
+      name: p.name ?? "",
     }));
   } catch {
     return [];
@@ -678,7 +682,7 @@ export async function fetchRuleSearch(
   query: string,
   languages?: string[],
   signal?: AbortSignal,
-): Promise<Array<{key: string; name?: string}>> {
+): Promise<Array<{ key: string; name?: string }>> {
   try {
     const params = new URLSearchParams();
     if (query) params.set("q", query);
@@ -687,14 +691,10 @@ export async function fetchRuleSearch(
     if (languages?.length) params.set("languages", languages.join(","));
 
     const result = await fetchJson<{
-      rules: Array<{key?: string; name?: string}>;
-    }>(
-      `${serverUrl}/api/rules/search?${params.toString()}`,
-      token,
-      signal,
-    );
-    return (result.rules ?? []).map(r => ({
-      key: r.key ?? '',
+      rules: Array<{ key?: string; name?: string }>;
+    }>(`${serverUrl}/api/rules/search?${params.toString()}`, token, signal);
+    return (result.rules ?? []).map((r) => ({
+      key: r.key ?? "",
       name: r.name,
     }));
   } catch {
@@ -797,7 +797,7 @@ export async function fetchIssueSeverityCounts(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
-  mode?: "STANDARD" | "MQR",
+  mode?: CleanCodeMode,
 ): Promise<IssueSeverityCounts | undefined> {
   try {
     const facetKey = mode === "MQR" ? "impactSeverities" : "severities";
