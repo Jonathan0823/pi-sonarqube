@@ -158,7 +158,11 @@ async function analyzeProject(
   filters?: SonarIssueFetchOptions,
 ): Promise<SonarAnalysisState> {
   const config = await resolveConfig(ctx, inputPath);
-  _cachedConfig = { serverUrl: config.serverUrl, projectKey: config.projectKey, token: config.token };
+  _cachedConfig = {
+    serverUrl: config.serverUrl,
+    projectKey: config.projectKey,
+    token: config.token,
+  };
   const baseDirStat = await stat(config.baseDir).catch(() => undefined);
   if (!baseDirStat?.isDirectory()) {
     throw new Error(`Project directory not found: ${config.baseDir}`);
@@ -396,13 +400,18 @@ function renderIssueListResult(
 // ── Extension entrypoint ────────────────────────────────────────────────────
 
 // ponytail: lazy config cache so rule autocomplete can fetch from the server
-let _cachedConfig: { serverUrl: string; projectKey: string; token?: string } | undefined;
+let _cachedConfig:
+  { serverUrl: string; projectKey: string; token?: string } | undefined;
 
 async function cachedServerConfig(cwd: string): Promise<typeof _cachedConfig> {
   if (!_cachedConfig) {
     try {
       const cfg = await resolveConfig({ cwd });
-      _cachedConfig = { serverUrl: cfg.serverUrl, projectKey: cfg.projectKey, token: cfg.token };
+      _cachedConfig = {
+        serverUrl: cfg.serverUrl,
+        projectKey: cfg.projectKey,
+        token: cfg.token,
+      };
     } catch {
       // fall through
     }

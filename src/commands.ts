@@ -22,7 +22,11 @@ import {
 import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { looksLikePath, loadWorkspaceRegistry, knownTargets } from "./config.js";
+import {
+  looksLikePath,
+  loadWorkspaceRegistry,
+  knownTargets,
+} from "./config.js";
 import {
   parseSonarIssueArgs,
   issueFilterLabel,
@@ -119,9 +123,7 @@ export function splitSonarArgumentContext(argumentText: string): {
   };
 }
 
-function createFilterCompletionList(
-  mode?: CleanCodeMode,
-): AutocompleteItem[] {
+function createFilterCompletionList(mode?: CleanCodeMode): AutocompleteItem[] {
   const buildItems = (
     groups: ReadonlyArray<
       readonly [string, readonly string[], string, boolean]
