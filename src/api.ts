@@ -18,18 +18,19 @@ import {
   SONAR_TYPES,
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
+  CleanCodeMode,
 } from "./types.js";
 import { parseProperties } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
 
-const cleanCodeModeCache = new Map<string, "STANDARD" | "MQR">();
+const cleanCodeModeCache = new Map<string, CleanCodeMode>();
 
 export async function fetchCleanCodeMode(
   serverUrl: string,
   token?: string,
   signal?: AbortSignal,
-): Promise<"STANDARD" | "MQR" | undefined> {
+): Promise<CleanCodeMode | undefined> {
   const cached = cleanCodeModeCache.get(serverUrl);
   if (cached) return cached;
   try {
@@ -797,7 +798,7 @@ export async function fetchIssueSeverityCounts(
   token: string | undefined,
   projectKey: string,
   signal?: AbortSignal,
-  mode?: "STANDARD" | "MQR",
+  mode?: CleanCodeMode,
 ): Promise<IssueSeverityCounts | undefined> {
   try {
     const facetKey = mode === "MQR" ? "impactSeverities" : "severities";

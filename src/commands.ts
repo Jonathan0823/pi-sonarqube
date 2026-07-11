@@ -17,6 +17,7 @@ import {
   SONAR_TYPES,
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
+  CleanCodeMode,
 } from "./types.js";
 import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -119,7 +120,7 @@ export function splitSonarArgumentContext(argumentText: string): {
 }
 
 function createFilterCompletionList(
-  mode?: "STANDARD" | "MQR",
+  mode?: CleanCodeMode,
 ): AutocompleteItem[] {
   const buildItems = (
     groups: ReadonlyArray<
@@ -370,7 +371,7 @@ function getInPathCompletions(
 
 function getOpenCompletions(
   issues: SonarIssue[] | undefined,
-  mode: "STANDARD" | "MQR" | undefined,
+  mode: CleanCodeMode | undefined,
   current: string,
 ): AutocompleteItem[] | null {
   const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
@@ -388,7 +389,7 @@ function getOpenCompletions(
 
 async function getFilterCompletions(
   current: string,
-  mode: "STANDARD" | "MQR" | undefined,
+  mode: CleanCodeMode | undefined,
   cwd: string | undefined,
   serverUrl: string | undefined,
   token: string | undefined,
@@ -424,7 +425,7 @@ async function getFilterCompletions(
 
 async function getAnalyzeCompletions(
   current: string,
-  mode: "STANDARD" | "MQR" | undefined,
+  mode: CleanCodeMode | undefined,
   cwd: string | undefined,
   serverUrl: string | undefined,
   token: string | undefined,
@@ -466,7 +467,7 @@ async function getWorkspaceAliases(
 export async function sonarArgumentCompletions(
   argumentText: string,
   issues?: SonarIssue[],
-  mode?: "STANDARD" | "MQR",
+  mode?: CleanCodeMode,
   cwd?: string,
   serverUrl?: string,
   token?: string,
@@ -652,7 +653,7 @@ export function formatMetricsOutput(metrics: {
   measures?: SonarDuplicationMeasures;
   issueCounts?: IssueSeverityCounts;
   issueQualityCounts?: IssueQualityCounts;
-  cleanCodeMode?: "STANDARD" | "MQR";
+  cleanCodeMode?: CleanCodeMode;
 }): string {
   const lines: string[] = [`Metrics for ${metrics.projectKey}`];
 

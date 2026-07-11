@@ -68,7 +68,7 @@ export interface SonarAnalysisState {
   measures?: SonarDuplicationMeasures;
   totalIssues: number;
   issues: SonarIssue[];
-  cleanCodeMode?: "STANDARD" | "MQR";
+  cleanCodeMode?: CleanCodeMode;
 }
 
 export interface SonarProjectConfig {
@@ -97,6 +97,8 @@ export interface SonarInitConfig {
 }
 
 // ── Internal types shared by adapter and extension ──────────────────────────
+
+export type CleanCodeMode = "STANDARD" | "MQR";
 
 export interface SonarWorkspaceRegistry {
   version: 1;
