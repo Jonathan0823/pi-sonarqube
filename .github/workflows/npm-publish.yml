@@ -7,7 +7,7 @@ on:
   release:
     types: [created]
 
-permissions: 
+permissions:
   id-token: write
   contents: read
 
@@ -18,10 +18,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
       - run: npm ci
       - run: npm test
-      
+
   publish-npm:
     needs: build
     runs-on: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           package-manager-cache: false
       - run: npm ci
       - run: npm publish --access public

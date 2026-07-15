@@ -29,7 +29,6 @@ import {
   ensureDefaultSonarProjectProperties,
   saveWorkspaceRegistry,
   resolveConfig,
-  loadWorkspaceRegistry,
 } from "./config.js";
 import {
   runScanner,
@@ -71,7 +70,7 @@ import {
   openIssuePreview,
   resolveTargetState,
   showDuplicationBrowser,
-  showWorkspaceBrowser,
+  pickOrResolveTarget,
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
@@ -292,10 +291,16 @@ async function initCommandHandler(
   ctx: ExtensionCommandContext,
   options: InitCommandOptions = {},
 ): Promise<void> {
+  let { alias, targetInput } = options;
+  if (!alias && !targetInput) {
+    const pickResult = await pickOrResolveTarget(ctx);
+    if (pickResult === null) return;
+    if (pickResult !== undefined) targetInput = pickResult;
+  }
   const { baseDir, repoRoot } = await resolveInitTarget(
     ctx,
-    options.alias,
-    options.targetInput,
+    alias,
+    targetInput,
   );
   const existing = await loadProjectConfig(baseDir);
 
@@ -731,7 +736,7 @@ async function commandAnalyze(
   rememberState: (s: SonarAnalysisState) => void,
 ): Promise<void> {
   if (!targetInput) {
-    const pickResult = await pickWorkspace(ctx);
+    const pickResult = await pickOrResolveTarget(ctx);
     if (pickResult === null) return; // user cancelled
     targetInput = pickResult;
   }
@@ -744,20 +749,6 @@ async function commandAnalyze(
       state.issues.length === 0 ? "info" : "warning",
     );
   }
-}
-
-async function pickWorkspace(
-  ctx: ExtensionContext,
-): Promise<string | undefined | null> {
-  const { registry } = await loadWorkspaceRegistry(ctx.cwd);
-  const entries = Object.entries(registry.workspaces);
-  if (entries.length === 0) return undefined; // no registry → use cwd
-  if (entries.length === 1) return entries[0][0]; // single → use it directly
-  if (ctx.mode !== "tui") return undefined; // headless → use cwd
-  return await showWorkspaceBrowser(
-    ctx,
-    entries.map(([alias, path]) => ({ alias, path })),
-  );
 }
 
 async function loadMetricsData(
@@ -803,6 +794,11 @@ async function commandMetrics(
   ctx: ExtensionCommandContext,
   targetInput?: string,
 ): Promise<void> {
+  if (!targetInput) {
+    const pickResult = await pickOrResolveTarget(ctx);
+    if (pickResult === null) return;
+    targetInput = pickResult;
+  }
   const config = await resolveConfig(ctx, targetInput);
   const metrics = await loadMetricsData(config, ctx.signal);
   if (!metrics) {
@@ -833,6 +829,11 @@ async function commandDuplications(
   fileIndex?: number,
   filters?: SonarIssueFetchOptions,
 ): Promise<void> {
+  if (!targetInput) {
+    const pickResult = await pickOrResolveTarget(ctx);
+    if (pickResult === null) return;
+    targetInput = pickResult;
+  }
   const config = await resolveConfig(ctx, targetInput);
   let files: FileDuplication[];
   try {
@@ -944,10 +945,16 @@ async function commandIssuesOrOpen(
   },
   rememberState: (s: SonarAnalysisState) => void,
 ): Promise<void> {
+  let { targetInput } = parsed;
+  if (!targetInput) {
+    const pickResult = await pickOrResolveTarget(ctx);
+    if (pickResult === null) return;
+    targetInput = pickResult;
+  }
   const targetState = await resolveTargetState(
     ctx,
     statesByBaseDir,
-    parsed.targetInput,
+    targetInput,
     parsed.filters,
   );
   if (!targetState) {
