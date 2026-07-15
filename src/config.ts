@@ -328,17 +328,21 @@ async function execFd(repoRoot: string): Promise<string> {
 
 export async function discoverSonarQubeTargets(
   repoRoot: string,
+  strategy?: "auto" | "fd" | "walk",
 ): Promise<DiscoveredTarget[]> {
-  // Try fd first
+  if (strategy === "walk") {
+    return walkForSonarqubeConfigs(repoRoot);
+  }
+
+  // Try fd first (auto default) or fd-only
   try {
     const output = await execFd(repoRoot);
     const parsed = parseDiscoveredPaths(output, repoRoot);
-    if (parsed.length > 0) return parsed;
-  } catch {
-    // fd not available or failed — fall through to stdlib
+    if (parsed.length > 0 || strategy === "fd") return parsed;
+  } catch (_e) {
+    if (strategy === "fd") throw _e;
   }
 
-  // Fallback: stdlib recursive walk
   return walkForSonarqubeConfigs(repoRoot);
 }
 

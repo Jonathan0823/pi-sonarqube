@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test, after } from "node:test";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,6 +9,26 @@ import {
   gatherTargets,
   saveWorkspaceRegistry,
 } from "../dist/config.js";
+
+// ── Strategy helpers ─────────────────────────────────────────────────────────
+
+let hasFd;
+try {
+  execFileSync("fd", ["--version"], {
+    encoding: "utf8",
+    timeout: 1000,
+  });
+  hasFd = true;
+} catch {
+  hasFd = false;
+}
+
+function testBoth(label, fn) {
+  if (hasFd) {
+    test(`${label} (fd path)`, () => fn("fd"));
+  }
+  test(`${label} (stdlib walk)`, () => fn("walk"));
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,16 +62,16 @@ after(async () => {
 
 // ── discoverSonarQubeTargets ─────────────────────────────────────────────────
 
-test("discovers single sonarqube config", async () => {
+testBoth("discovers single sonarqube config", async (strategy) => {
   const root = await makeRepo(["apps/web"]);
-  const targets = await discoverSonarQubeTargets(root);
+  const targets = await discoverSonarQubeTargets(root, strategy);
   assert.equal(targets.length, 1);
   assert.equal(targets[0].dir, resolve(root, "apps/web"));
 });
 
-test("discovers multiple sonarqube configs", async () => {
+testBoth("discovers multiple sonarqube configs", async (strategy) => {
   const root = await makeRepo(["apps/web", "apps/api", "libs/shared"]);
-  const targets = await discoverSonarQubeTargets(root);
+  const targets = await discoverSonarQubeTargets(root, strategy);
   assert.equal(targets.length, 3);
 
   const dirs = targets.map((t) => t.dir).sort();
@@ -61,13 +82,13 @@ test("discovers multiple sonarqube configs", async () => {
   ]);
 });
 
-test("returns empty when no sonarqube configs exist", async () => {
+testBoth("returns empty when no sonarqube configs exist", async (strategy) => {
   const root = await makeRepo([]); // repo root with .git but no configs
-  const targets = await discoverSonarQubeTargets(root);
+  const targets = await discoverSonarQubeTargets(root, strategy);
   assert.equal(targets.length, 0);
 });
 
-test("filters out repo root when config is at root", async () => {
+testBoth("filters out repo root when config is at root", async (strategy) => {
   const root = await makeRepo([]);
   // Create config at root level
   await mkdir(resolve(root, ".pi"), { recursive: true });
@@ -76,11 +97,11 @@ test("filters out repo root when config is at root", async () => {
     JSON.stringify({ serverUrl: "http://localhost:9000", projectKey: "root" }) +
       "\n",
   );
-  const targets = await discoverSonarQubeTargets(root);
+  const targets = await discoverSonarQubeTargets(root, strategy);
   assert.equal(targets.length, 0); // skipped because it's the repo root
 });
 
-test("skips node_modules and .git during stdlib walk", async () => {
+testBoth("skips node_modules and .git", async (strategy) => {
   const root = await makeRepo(["apps/web"]);
   // Add a config deep inside node_modules that should be skipped
   const deep = resolve(root, "node_modules/some-pkg");
@@ -97,7 +118,7 @@ test("skips node_modules and .git during stdlib walk", async () => {
     JSON.stringify({ serverUrl: "http://localhost:9000", projectKey: "bad" }) +
       "\n",
   );
-  const targets = await discoverSonarQubeTargets(root);
+  const targets = await discoverSonarQubeTargets(root, strategy);
   assert.equal(targets.length, 1);
   assert.equal(targets[0].dir, resolve(root, "apps/web"));
 });
