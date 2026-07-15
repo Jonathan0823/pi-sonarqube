@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DuplicationBrowser, IssueBrowser, WorkspaceBrowser } from "../dist/ui.js";
+import {
+  DuplicationBrowser,
+  IssueBrowser,
+  WorkspaceBrowser,
+} from "../dist/ui.js";
 
 const theme = {
   fg: (_kind, text) => text,
@@ -47,7 +51,10 @@ test("issue browser search filters by file, rule, and message", () => {
   browser.handleInput("a");
 
   const text = renderText(browser);
-  assert.match(text, /Search issues by file, rule, severity, status, or message/);
+  assert.match(
+    text,
+    /Search issues by file, rule, severity, status, or message/,
+  );
   assert.match(text, /src\/beta\.ts/);
   assert.doesNotMatch(text, /src\/alpha\.ts/);
 });
@@ -79,7 +86,10 @@ test("duplication browser search filters by file path and stats", () => {
   browser.handleInput("0");
 
   const text = renderText(browser);
-  assert.match(text, /Search duplications by file path, duplicated lines, blocks, or density/);
+  assert.match(
+    text,
+    /Search duplications by file path, duplicated lines, blocks, or density/,
+  );
   assert.match(text, /src\/beta\.ts/);
   assert.doesNotMatch(text, /src\/alpha\.ts/);
 });

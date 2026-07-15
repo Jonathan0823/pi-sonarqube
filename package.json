@@ -21,6 +21,8 @@
   ],
   "scripts": {
     "build": "tsc",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "npm run build && node --test",
     "test:coverage": "npm run build && c8 --all --src src -r text -r lcovonly node --test",
     "prepack": "npm run build",

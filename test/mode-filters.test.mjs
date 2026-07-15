@@ -9,7 +9,10 @@ import {
   issueFilterLabel,
   parseIssueFilterToken,
 } from "../dist/api.js";
-import { formatMetricsOutput, sonarArgumentCompletions } from "../dist/commands.js";
+import {
+  formatMetricsOutput,
+  sonarArgumentCompletions,
+} from "../dist/commands.js";
 
 function mockResponse(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);

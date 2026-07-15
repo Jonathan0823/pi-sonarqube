@@ -127,11 +127,7 @@ test("gatherTargets merges registry and discovered targets", async () => {
 test("gatherTargets deduplicates by path", async () => {
   const root = await makeRepo(["myapp"]);
   // Register an alias that points to the same dir
-  await saveWorkspaceRegistry(
-    root,
-    "myapp",
-    resolve(root, "myapp"),
-  );
+  await saveWorkspaceRegistry(root, "myapp", resolve(root, "myapp"));
 
   const { targets } = await gatherTargets(root);
   assert.equal(targets.length, 1); // no duplicate

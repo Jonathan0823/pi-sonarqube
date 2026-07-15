@@ -102,14 +102,14 @@ Use **Up/Down** to move, **Enter** for block locations and line ranges, and type
 
 ## Commands
 
-| Command                          | Description                                     |
-| -------------------------------- | ----------------------------------------------- |
-| `/sonarqube init [path]`         | Set up project config for a path               |
-| `/sonarqube analyze [target]`    | Run analysis and show issues + duplication metrics |
-| `/sonarqube issues [target]`     | Browse the latest analysis results for a target |
-| `/sonarqube metrics [target]`    | Show project metrics (coverage %, duplication %, issue counts, no scanner) |
-| `/sonarqube duplications [target]` | Browse duplicated files and blocks with drill-down         |
-| `/sonarqube open [target] <n>`   | Preview source at issue #n                     |
+| Command                            | Description                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `/sonarqube init [path]`           | Set up project config for a path                                           |
+| `/sonarqube analyze [target]`      | Run analysis and show issues + duplication metrics                         |
+| `/sonarqube issues [target]`       | Browse the latest analysis results for a target                            |
+| `/sonarqube metrics [target]`      | Show project metrics (coverage %, duplication %, issue counts, no scanner) |
+| `/sonarqube duplications [target]` | Browse duplicated files and blocks with drill-down                         |
+| `/sonarqube open [target] <n>`     | Preview source at issue #n                                                 |
 
 ## Tool (for the LLM)
 

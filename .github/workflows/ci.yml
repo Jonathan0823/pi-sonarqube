@@ -1,4 +1,4 @@
-name: Build, Format, Lint & Test
+name: CI
 
 on:
   push:
@@ -7,20 +7,32 @@ on:
     branches: [main]
 
 jobs:
-  ci:
+  format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
       - run: npm ci
+      - run: npm run format:check
 
-      - name: Format check
-        run: npx prettier --check .
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npx oxlint@latest --quiet
 
-      - name: Lint
-        run: npx oxlint@latest --quiet
-
-      - name: Build & test
-        run: npm test
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm test
