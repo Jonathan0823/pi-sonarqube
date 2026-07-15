@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DuplicationBrowser, IssueBrowser } from "../dist/ui.js";
+import { DuplicationBrowser, IssueBrowser, WorkspaceBrowser } from "../dist/ui.js";
 
 const theme = {
   fg: (_kind, text) => text,
@@ -82,4 +82,46 @@ test("duplication browser search filters by file path and stats", () => {
   assert.match(text, /Search duplications by file path, duplicated lines, blocks, or density/);
   assert.match(text, /src\/beta\.ts/);
   assert.doesNotMatch(text, /src\/alpha\.ts/);
+});
+
+test("workspace browser search filters by alias and path", () => {
+  const browser = new WorkspaceBrowser(
+    [
+      { alias: "web", path: "apps/web" },
+      { alias: "api", path: "apps/api" },
+      { alias: "shared", path: "libs/shared" },
+    ],
+    theme,
+    () => {},
+  );
+
+  browser.handleInput("a");
+  browser.handleInput("p");
+  browser.handleInput("i");
+
+  const text = renderText(browser);
+  assert.match(text, /Search workspaces by alias or path/);
+  assert.match(text, /api/);
+  assert.match(text, /apps\/api/);
+  assert.doesNotMatch(text, /web/);
+  assert.doesNotMatch(text, /shared/);
+});
+
+test("workspace browser renders all entries without filter", () => {
+  const browser = new WorkspaceBrowser(
+    [
+      { alias: "web", path: "apps/web" },
+      { alias: "api", path: "apps/api" },
+    ],
+    theme,
+    () => {},
+  );
+
+  const text = renderText(browser);
+  assert.match(text, /web/);
+  assert.match(text, /apps\/web/);
+  assert.match(text, /api/);
+  assert.match(text, /apps\/api/);
+  assert.match(text, /2 workspace\(s\)/);
+  assert.match(text, /2 match\(es\)/);
 });
