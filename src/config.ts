@@ -306,13 +306,16 @@ async function execFd(repoRoot: string): Promise<string> {
     "fd",
     [
       "--hidden",
-      "--no-ignore",
       "-g",
-      SONARQUBE_CONFIG_FILE,
+      "sonarqube.json",
       "--base-directory",
       repoRoot,
       "--max-depth",
       "8",
+      "--exclude",
+      ".git",
+      "--exclude",
+      "node_modules",
     ],
     {
       encoding: "utf8",
@@ -347,7 +350,7 @@ function parseDiscoveredPaths(
   const seen = new Set<string>();
   const targets: DiscoveredTarget[] = [];
   for (const line of lines) {
-    const dir = dirname(resolve(repoRoot, line));
+    const dir = resolve(repoRoot, dirname(dirname(line)));
     if (dir === repoRoot) continue;
     const key = relative(repoRoot, dir);
     if (seen.has(key)) continue;
