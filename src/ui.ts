@@ -26,7 +26,7 @@ import {
   normalizeIssueFilters,
   fetchCleanCodeMode,
 } from "./api.js";
-import { resolveConfig, resolveTarget } from "./config.js";
+import { resolveConfig, resolveTarget, gatherTargets } from "./config.js";
 
 // ── Issue preview ───────────────────────────────────────────────────────────
 
@@ -526,7 +526,57 @@ export async function showWorkspaceBrowser(
     (_tui, theme, _kb, done) => new WorkspaceBrowser(workspaces, theme, done),
   );
   if (choice == null) return null;
-  return workspaces[choice].alias;
+  return workspaces[choice].path;
+}
+
+// ── Unified target picker (used by index.ts) ────────────────────────────────
+
+/**
+ * Helpers to make a relative path resolvable by `resolveTarget`.
+ * Paths that don't look like paths (no `/`, `.`, or leading `/`) get `./`
+ * prefixed so `looksLikePath` can detect them.
+ */
+function makeTargetResolvable(path: string): string {
+  if (path.startsWith("/") || path.startsWith(".") || path.includes("/"))
+    return path;
+  return "./" + path;
+}
+
+/**
+ * Resolve an optional target to a string usable by downstream commands.
+ *
+ * Returns:
+ *   - the explicit target string (if given)
+ *   - `undefined` when no targets exist → caller falls back to cwd
+ *   - `null` when user cancels the picker → caller stops
+ *   - the selected alias or path otherwise
+ *
+ * Headless ambiguity throws an error listing all candidates.
+ */
+export async function pickOrResolveTarget(
+  ctx: ExtensionContext | ExtensionCommandContext,
+  targetInput?: string,
+): Promise<string | undefined | null> {
+  if (targetInput) return targetInput;
+
+  const { targets } = await gatherTargets(ctx.cwd);
+
+  if (targets.length === 0) return undefined;
+
+  if (targets.length === 1) {
+    return makeTargetResolvable(targets[0].path);
+  }
+
+  if (ctx.mode !== "tui") {
+    const list = targets.map((t) => `"${t.alias}" (${t.path})`).join(", ");
+    throw new Error(
+      `Multiple SonarQube targets found: ${list}. Pass a target explicitly, e.g. /sonarqube <command> ${targets[0].path}.`,
+    );
+  }
+
+  const choice = await showWorkspaceBrowser(ctx, targets);
+  if (choice == null) return null;
+  return makeTargetResolvable(choice);
 }
 
 // ── Issue browser / preview helpers (used by index.ts) ──────────────────────
