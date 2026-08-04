@@ -5,6 +5,7 @@ import {
   assertFiltersNotAmbiguous,
   fetchCleanCodeMode,
   fetchFileDuplications,
+  fetchFileDuplicationBlocks,
   fetchIssueSeverityCounts,
   issueFilterLabel,
   parseIssueFilterToken,
@@ -199,6 +200,41 @@ test("file duplication fetch surfaces permission errors", async () => {
           undefined,
         ),
       /403|Insufficient privileges/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("file duplication blocks resolve referenced files", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      mockResponse({
+        duplications: [
+          {
+            blocks: [
+              { from: 10, size: 3, _ref: "1" },
+              { from: 12, size: 3, _ref: "2" },
+            ],
+          },
+        ],
+        files: {
+          1: { key: "demo:src/a.ts" },
+          2: { key: "demo:src/b.ts" },
+        },
+      });
+
+    const groups = await fetchFileDuplicationBlocks(
+      "http://example.test",
+      "token",
+      "demo:src/a.ts",
+      "demo",
+    );
+
+    assert.deepEqual(
+      groups[0].blocks.map((block) => block.filePath),
+      ["src/a.ts", "src/b.ts"],
     );
   } finally {
     globalThis.fetch = originalFetch;
