@@ -921,15 +921,12 @@ async function showDuplicationListOrBrowser(
     config.projectKey,
     ctx.signal,
   );
-  const lines = [`Duplications in ${file.filePath}`];
-  for (const [i, group] of groups.entries()) {
-    lines.push("", `Block ${i + 1}:`);
-    for (const block of group.blocks) {
-      const end = block.from + block.size - 1;
-      lines.push(`  ${block.filePath}:${block.from}-${end}`);
-    }
-  }
-  ctx.ui.setEditorText(lines.join("\n"));
+  const text = await buildDuplicationPreview(
+    config.baseDir,
+    file.filePath,
+    groups,
+  );
+  ctx.ui.setEditorText(text);
   ctx.ui.notify("Duplication loaded into editor — press Enter to send", "info");
 }
 

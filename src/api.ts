@@ -937,14 +937,23 @@ export async function fetchFileDuplicationBlocks(
   const url = `${serverUrl}/api/duplications/show?key=${encodeURIComponent(fileKey)}`;
   const result = await fetchJson<{
     duplications: Array<{
-      blocks: Array<{ from: number; size: number; component: string }>;
+      blocks: Array<{
+        from: number;
+        size: number;
+        _ref?: string;
+        component?: string;
+      }>;
     }>;
+    files?: Record<string, { key?: string }>;
   }>(url, token, signal);
   return result.duplications.map((d) => ({
-    blocks: d.blocks.map((b) => ({
-      from: b.from,
-      size: b.size,
-      filePath: toIssuePath(b.component, projectKey),
-    })),
+    blocks: d.blocks.map((b) => {
+      const fileKey = b._ref ? result.files?.[b._ref]?.key : b.component;
+      return {
+        from: b.from,
+        size: b.size,
+        filePath: toIssuePath(fileKey, projectKey),
+      };
+    }),
   }));
 }
