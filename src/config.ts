@@ -11,13 +11,28 @@ import type {
 
 // ── Generic helpers ─────────────────────────────────────────────────────────
 
+/** Remove trailing characters in `chars` from `value`. */
+export function trimTrailing(value: string, chars: string): string {
+  let end = value.length;
+  while (end > 0 && chars.includes(value[end - 1])) end--;
+  return value.slice(0, end);
+}
+
+/** Remove leading and trailing characters in `chars` from `value`. */
+export function trimChars(value: string, chars: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && chars.includes(value[start])) start++;
+  while (end > start && chars.includes(value[end - 1])) end--;
+  return value.slice(start, end);
+}
+
 export function slugify(input: string): string {
   return (
-    input
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "sonarqube"
+    trimChars(input.toLowerCase().replace(/[^a-z0-9]+/g, "-"), "-").slice(
+      0,
+      80,
+    ) || "sonarqube"
   );
 }
 
@@ -43,7 +58,7 @@ export function parseProperties(text: string): Record<string, string> {
 export function normalizeServerUrl(url: string | undefined): string {
   const fallback = "http://localhost:9000";
   if (!url?.trim()) return fallback;
-  return url.trim().replace(/\/+$/, "");
+  return trimTrailing(url.trim(), "/");
 }
 
 export function resolveProjectKey(
@@ -131,7 +146,17 @@ export function mergeCommaSeparatedValues(
   return [...merged].join(",");
 }
 
-const EXCLUSION_RE = /^(\s*)(sonar\.(?:sources|exclusions))\s*=\s*(.*)$/;
+function matchSonarProperty(
+  line: string,
+): { indent: string; key: string; value: string } | undefined {
+  const trimmedStart = line.trimStart();
+  const eq = trimmedStart.indexOf("=");
+  if (eq < 0) return undefined;
+  const key = trimmedStart.slice(0, eq).trimEnd();
+  if (key !== "sonar.sources" && key !== "sonar.exclusions") return undefined;
+  const indent = line.slice(0, line.length - trimmedStart.length);
+  return { indent, key, value: trimmedStart.slice(eq + 1).trim() };
+}
 
 export async function ensureDefaultSonarProjectProperties(
   baseDir: string,
@@ -149,12 +174,10 @@ export async function ensureDefaultSonarProjectProperties(
   let changed = false;
 
   const updatedLines = lines.map((line) => {
-    const match = EXCLUSION_RE.exec(line);
-    if (!match) return line;
+    const property = matchSonarProperty(line);
+    if (!property) return line;
 
-    const indent = match[1] ?? "";
-    const key = match[2];
-    const value = match[3] ?? "";
+    const { indent, key, value } = property;
 
     if (key === "sonar.sources") {
       hasSources = true;
@@ -188,7 +211,7 @@ export async function ensureDefaultSonarProjectProperties(
     return "unchanged";
   }
 
-  const normalized = updatedLines.join("\n").replace(/\n*$/, "\n");
+  const normalized = trimTrailing(updatedLines.join("\n"), "\n") + "\n";
   await writeFile(path, normalized, "utf8");
   return existing.includes("sonar.sources") ||
     existing.includes("sonar.exclusions")

@@ -424,6 +424,18 @@ async function cachedServerConfig(cwd: string): Promise<typeof _cachedConfig> {
   return _cachedConfig;
 }
 
+const SONARQUBE_COMMAND_PREFIX = "/sonarqube";
+
+/** Text after "/sonarqube " in an autocomplete prefix, or undefined if it isn't a /sonarqube command. */
+export function sonarqubeArgumentText(prefix: string): string | undefined {
+  if (!prefix.startsWith(SONARQUBE_COMMAND_PREFIX)) return undefined;
+  const rest = prefix.slice(SONARQUBE_COMMAND_PREFIX.length);
+  if (rest === "") return "";
+  const trimmed = rest.trimStart();
+  if (trimmed === rest) return undefined; // no whitespace after the command
+  return trimmed;
+}
+
 export default function sonarqube(pi: ExtensionAPI) {
   const statesByBaseDir = new Map<string, SonarAnalysisState>();
   let latestState: SonarAnalysisState | undefined;
@@ -445,16 +457,14 @@ export default function sonarqube(pi: ExtensionAPI) {
         async getSuggestions(lines, cursorLine, cursorCol, options) {
           const line = lines[cursorLine] ?? "";
           const beforeCursor = line.slice(0, cursorCol);
-          const match = /^\/sonarqube(?:\s+(.*))?$/.exec(beforeCursor);
-          if (!match)
+          const argumentText = sonarqubeArgumentText(beforeCursor);
+          if (argumentText === undefined)
             return current.getSuggestions(
               lines,
               cursorLine,
               cursorCol,
               options,
             );
-
-          const argumentText = match[1] ?? "";
           const { current: currentToken } =
             splitSonarArgumentContext(argumentText);
           const cfg = await cachedServerConfig(ctx.cwd);

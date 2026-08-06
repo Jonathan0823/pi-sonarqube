@@ -20,7 +20,7 @@ import {
   SONAR_IMPACT_SEVERITIES,
   CleanCodeMode,
 } from "./types.js";
-import { parseProperties } from "./config.js";
+import { parseProperties, trimTrailing } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
 
@@ -302,7 +302,7 @@ export function resolvePathScope(
   const absPath = resolve(baseDir, raw);
   const relPath = relative(baseDir, absPath);
   if (relPath === "" || relPath === ".") return projectKey;
-  const cleanRel = relPath.replace(/[\\/]+$/, "");
+  const cleanRel = trimTrailing(relPath, "/\\");
   return `${projectKey}:${cleanRel}`;
 }
 
