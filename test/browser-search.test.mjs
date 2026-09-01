@@ -55,6 +55,7 @@ test("issue browser search filters by file, rule, and message", () => {
     text,
     /Search issues by file, rule, severity, status, or message/,
   );
+  assert.doesNotMatch(text, /\[2\]/);
   assert.match(text, /src\/beta\.ts/);
   assert.doesNotMatch(text, /src\/alpha\.ts/);
 });

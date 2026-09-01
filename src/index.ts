@@ -35,6 +35,7 @@ import {
   readReportTask,
   waitForAnalysis,
   normalizeIssueFilters,
+  normalizeIssueList,
   fetchIssues,
   fetchDuplicationMeasures,
   fetchIssueSeverityCounts,
@@ -60,6 +61,7 @@ import {
   helpText,
   targetLabel,
   sonarErrorMessage,
+  assertIssueSelection,
 } from "./commands.js";
 
 import {
@@ -83,11 +85,22 @@ const SonarToolParams = Type.Object({
   ] as const),
   path: Type.Optional(
     Type.String({
-      description: "Target alias or project directory to analyze or inspect",
+      description:
+        "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
     }),
   ),
   issueIndex: Type.Optional(
-    Type.Number({ description: "1-based issue index to open" }),
+    Type.Number({
+      description:
+        "Legacy 1-based issue position in this call's query results. Prefer issueKeys for stable opening.",
+    }),
+  ),
+  issueKeys: Type.Optional(
+    Type.Array(Type.String({ description: "Stable SonarQube issue key" }), {
+      description: "One to 10 stable issue keys to open in one batch",
+      minItems: 1,
+      maxItems: 10,
+    }),
   ),
   severities: Type.Optional(
     Type.Array(
@@ -356,13 +369,76 @@ function renderEmptyResult(summary: string, theme: Theme): Text {
 function renderIssueResult(
   issue: SonarIssue,
   contentText: string | undefined,
-  expanded: boolean,
   theme: Theme,
 ): Text {
   const text = contentText ?? formatIssue(issue);
-  const preview = expanded ? text.split("\n").slice(1).join("\n") : "";
-  const label = theme.fg("accent", formatIssue(issue));
+  const preview = text.split("\n").slice(1).join("\n");
+  const label = theme.fg("accent", formatIssue(issue, undefined, false));
   return new Text(preview ? `${label}\n${preview}` : label, 0, 0);
+}
+
+async function buildIssueKeyPreviews(
+  baseDir: string,
+  issueKeys: string[],
+  issues: SonarIssue[],
+): Promise<{
+  text: string;
+  selectedIssues: SonarIssue[];
+  missingIssueKeys: string[];
+}> {
+  const issuesByKey = new Map(issues.map((issue) => [issue.key, issue]));
+  const selectedIssues: SonarIssue[] = [];
+  const missingIssueKeys: string[] = [];
+  const sections = await Promise.all(
+    issueKeys.map(async (key) => {
+      const issue = issuesByKey.get(key);
+      if (!issue) {
+        missingIssueKeys.push(key);
+        return `Issue key "${key}" was not found.`;
+      }
+      selectedIssues.push(issue);
+      try {
+        const preview = await buildIssuePreview(baseDir, issue);
+        return `${formatIssue(issue)}\n\n${preview}`;
+      } catch (error) {
+        return `${formatIssue(issue)}\n\n${sonarErrorMessage(error)}`;
+      }
+    }),
+  );
+  return { text: sections.join("\n\n"), selectedIssues, missingIssueKeys };
+}
+
+function renderIssueBatchResult(
+  issues: SonarIssue[],
+  missingIssueKeys: string[],
+  contentText: string | undefined,
+  theme: Theme,
+): Text {
+  if (contentText) {
+    const hiddenKeys = issues.reduce(
+      (text, issue) =>
+        text.replace(formatIssue(issue), formatIssue(issue, undefined, false)),
+      contentText,
+    );
+    const hiddenMissingKeys = missingIssueKeys.reduce(
+      (text, key) =>
+        text.replace(
+          `Issue key "${key}" was not found.`,
+          "Requested issue was not found.",
+        ),
+      hiddenKeys,
+    );
+    return new Text(hiddenMissingKeys, 0, 0);
+  }
+  const lines = issues.map((issue) =>
+    theme.fg("accent", formatIssue(issue, undefined, false)),
+  );
+  if (missingIssueKeys.length > 0) {
+    lines.push(
+      theme.fg("error", "One or more requested issues were not found."),
+    );
+  }
+  return new Text(lines.join("\n"), 0, 0);
 }
 
 function renderIssueListResult(
@@ -392,7 +468,7 @@ function renderIssueListResult(
 
   const visible = expanded ? state.issues : state.issues.slice(0, 5);
   for (const [i, issue] of visible.entries()) {
-    lines.push(theme.fg("muted", formatIssue(issue, i + 1)));
+    lines.push(theme.fg("muted", formatIssue(issue, i + 1, false)));
   }
   if (!expanded && state.issues.length > visible.length) {
     lines.push(
@@ -526,8 +602,10 @@ export default function sonarqube(pi: ExtensionAPI) {
     promptSnippet: "Run local SonarQube analysis or inspect issue results",
     promptGuidelines: [
       "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
+      "The `path` parameter selects a configured target alias or SonarQube project root. Never pass a source file or subdirectory as `path`.",
+      "Use `pathScope` for a file or directory inside that project. Example: path: 'apps/web', pathScope: 'src/components/'.",
       "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
-      "To scope issues to a specific file or directory, use the `pathScope` parameter (e.g. pathScope: 'src/api.ts') — do not use the `path` parameter for file filtering.",
+      "Prefer stable `issueKeys` over positional `issueIndex` when opening issue source. Multiple keys can be opened in one call.",
     ],
     parameters: SonarToolParams,
 
@@ -543,6 +621,11 @@ export default function sonarqube(pi: ExtensionAPI) {
           pathScope: params.pathScope,
         });
         assertFiltersNotAmbiguous(filters);
+        const issueKeys = normalizeIssueList(params.issueKeys);
+        assertIssueSelection(params.issueIndex, issueKeys);
+        if (issueKeys?.length && params.action !== "open") {
+          throw new Error("issueKeys can only be used with the open action.");
+        }
 
         if (params.action === "analyze") {
           const state = await analyzeProject(pi, ctx, params.path, filters);
@@ -561,7 +644,7 @@ export default function sonarqube(pi: ExtensionAPI) {
           ctx,
           statesByBaseDir,
           params.path,
-          filters,
+          normalizeIssueFilters({ ...filters, issueKeys }),
         );
         if (!targetState) {
           return {
@@ -583,6 +666,18 @@ export default function sonarqube(pi: ExtensionAPI) {
           return {
             content: [{ type: "text", text: formatReport(targetState) }],
             details: targetState,
+          };
+        }
+
+        if (issueKeys?.length) {
+          const result = await buildIssueKeyPreviews(
+            targetState.baseDir,
+            issueKeys,
+            targetState.issues,
+          );
+          return {
+            content: [{ type: "text", text: result.text }],
+            details: result,
           };
         }
 
@@ -622,6 +717,8 @@ export default function sonarqube(pi: ExtensionAPI) {
         rules: args.rules,
         softwareQualities: args.softwareQualities,
         impactSeverities: args.impactSeverities,
+        issueKeys: args.issueKeys,
+        pathScope: args.pathScope,
       });
       const filterText = filters
         ? ` ${theme.fg("muted", issueFilterLabel(filters))}`
@@ -638,7 +735,12 @@ export default function sonarqube(pi: ExtensionAPI) {
     renderResult(result, { expanded }, theme, _context) {
       const state = result.details as
         | SonarAnalysisState
-        | { error?: string; selectedIssue?: SonarIssue }
+        | {
+            error?: string;
+            selectedIssue?: SonarIssue;
+            selectedIssues?: SonarIssue[];
+            missingIssueKeys?: string[];
+          }
         | undefined;
 
       if (!state) {
@@ -650,13 +752,20 @@ export default function sonarqube(pi: ExtensionAPI) {
         return renderErrorResult(state.error, theme);
       }
 
+      const contentText =
+        result.content[0]?.type === "text" ? result.content[0].text : undefined;
+
       if ("selectedIssue" in state && state.selectedIssue) {
-        const issue = state.selectedIssue;
-        const contentText =
-          result.content[0]?.type === "text"
-            ? result.content[0].text
-            : undefined;
-        return renderIssueResult(issue, contentText, expanded, theme);
+        return renderIssueResult(state.selectedIssue, contentText, theme);
+      }
+
+      if ("selectedIssues" in state && state.selectedIssues) {
+        return renderIssueBatchResult(
+          state.selectedIssues,
+          state.missingIssueKeys ?? [],
+          contentText,
+          theme,
+        );
       }
 
       if ("issues" in state) {
@@ -720,7 +829,6 @@ export default function sonarqube(pi: ExtensionAPI) {
             return;
           default:
             await commandIssuesOrOpen(
-              pi,
               ctx,
               statesByBaseDir,
               parsed,
@@ -940,47 +1048,63 @@ async function showDuplicationListOrBrowser(
   ctx.ui.notify("Duplication loaded into editor — press Enter to send", "info");
 }
 
-async function commandIssuesOrOpen(
-  pi: ExtensionAPI,
+type IssueCommandArgs = {
+  targetInput?: string;
+  filters?: SonarIssueFetchOptions;
+  action: string;
+  issueIndex?: number;
+  issueKeys?: string[];
+};
+
+async function resolveIssueCommandState(
   ctx: ExtensionCommandContext,
   statesByBaseDir: Map<string, SonarAnalysisState>,
-  parsed: {
-    targetInput?: string;
-    filters?: SonarIssueFetchOptions;
-    action: string;
-    issueIndex?: number;
-  },
-  rememberState: (s: SonarAnalysisState) => void,
-): Promise<void> {
-  let { targetInput } = parsed;
+  targetInput: string | undefined,
+  filters: SonarIssueFetchOptions | undefined,
+): Promise<SonarAnalysisState | undefined> {
+  const originalTargetInput = targetInput;
   if (!targetInput) {
     const pickResult = await pickOrResolveTarget(ctx);
-    if (pickResult === null) return;
+    if (pickResult === null) return undefined;
     targetInput = pickResult;
   }
   const targetState = await resolveTargetState(
     ctx,
     statesByBaseDir,
     targetInput,
-    parsed.filters,
+    filters,
   );
-  if (!targetState) {
-    if (ctx.hasUI) {
+  if (!targetState && ctx.hasUI) {
+    ctx.ui.notify(
+      `No SonarQube analysis found for this target. Run /sonarqube analyze${targetLabel(originalTargetInput)} first.`,
+      "warning",
+    );
+  }
+  return targetState;
+}
+
+async function openIssueCommand(
+  ctx: ExtensionCommandContext,
+  targetState: SonarAnalysisState,
+  parsed: IssueCommandArgs,
+): Promise<void> {
+  if (parsed.issueKeys?.length) {
+    const result = await buildIssueKeyPreviews(
+      targetState.baseDir,
+      parsed.issueKeys,
+      targetState.issues,
+    );
+    if (ctx.mode === "tui") {
+      await ctx.ui.editor("SonarQube issue previews", result.text);
+    } else if (ctx.hasUI) {
       ctx.ui.notify(
-        `No SonarQube analysis found for this target. Run /sonarqube analyze${targetLabel(parsed.targetInput)} first.`,
-        "warning",
+        result.text,
+        result.missingIssueKeys.length ? "warning" : "info",
       );
     }
     return;
   }
-  rememberState(targetState);
 
-  if (parsed.action === "issues") {
-    await commandShowIssues(ctx, targetState);
-    return;
-  }
-
-  // "open"
   const index = parsed.issueIndex ?? 1;
   const issue = targetState.issues[index - 1];
   if (!issue) {
@@ -988,6 +1112,29 @@ async function commandIssuesOrOpen(
     return;
   }
   await openIssuePreview(ctx, targetState, issue);
+}
+
+async function commandIssuesOrOpen(
+  ctx: ExtensionCommandContext,
+  statesByBaseDir: Map<string, SonarAnalysisState>,
+  parsed: IssueCommandArgs,
+  rememberState: (s: SonarAnalysisState) => void,
+): Promise<void> {
+  assertIssueSelection(parsed.issueIndex, parsed.issueKeys);
+  const targetState = await resolveIssueCommandState(
+    ctx,
+    statesByBaseDir,
+    parsed.targetInput,
+    normalizeIssueFilters({ ...parsed.filters, issueKeys: parsed.issueKeys }),
+  );
+  if (!targetState) return;
+
+  rememberState(targetState);
+  if (parsed.action === "issues") {
+    await commandShowIssues(ctx, targetState);
+    return;
+  }
+  await openIssueCommand(ctx, targetState, parsed);
 }
 
 async function commandShowIssues(

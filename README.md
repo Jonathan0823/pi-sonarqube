@@ -69,9 +69,12 @@ Pi will:
 ```
 /sonarqube issues
 /sonarqube issues apps/web
+/sonarqube issues apps/web in:src/components/
 ```
 
-Use **Up/Down** to move, **Enter** to preview the affected source code, **Esc** to close, and type to search by file, rule, severity, status, or message.
+The target (`apps/web` above) is a configured alias or SonarQube project root. Use `in:` to scope issues to a file or directory inside that project.
+
+Use **Up/Down** to move, **Enter** to preview the affected source code, **Esc** to close, and type to search by issue key, file, rule, severity, status, or message.
 
 Tip: Tab-complete `/sonarqube` subcommands and filters in the editor.
 
@@ -98,18 +101,23 @@ Use **Up/Down** to move, **Enter** for block locations and line ranges, and type
 ```
 /sonarqube open 3
 /sonarqube open apps/web 3
+/sonarqube open apps/web issue:AZ123
+/sonarqube open apps/web issue:AZ123,AZ456
 ```
+
+Issue keys are stable across filtered queries; numeric positions refer only to the current query result.
 
 ## Commands
 
-| Command                            | Description                                                                |
-| ---------------------------------- | -------------------------------------------------------------------------- |
-| `/sonarqube init [path]`           | Set up project config for a path                                           |
-| `/sonarqube analyze [target]`      | Run analysis and show issues + duplication metrics                         |
-| `/sonarqube issues [target]`       | Browse the latest analysis results for a target                            |
-| `/sonarqube metrics [target]`      | Show project metrics (coverage %, duplication %, issue counts, no scanner) |
-| `/sonarqube duplications [target]` | Browse duplicated files and blocks with drill-down                         |
-| `/sonarqube open [target] <n>`     | Preview source at issue #n                                                 |
+| Command                                   | Description                                                                |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| `/sonarqube init [path]`                  | Set up project config for a path                                           |
+| `/sonarqube analyze [target]`             | Run analysis and show issues + duplication metrics                         |
+| `/sonarqube issues [target] [in:<scope>]` | Browse project issues, optionally scoped to a file or directory            |
+| `/sonarqube metrics [target]`             | Show project metrics (coverage %, duplication %, issue counts, no scanner) |
+| `/sonarqube duplications [target]`        | Browse duplicated files and blocks with drill-down                         |
+| `/sonarqube open [target] <n>`            | Preview source at positional issue #n                                      |
+| `/sonarqube open [target] issue:<keys>`   | Preview source for one or more stable issue keys                           |
 
 ## Tool (for the LLM)
 
@@ -119,7 +127,9 @@ The extension also registers a `sonarqube` tool that the LLM can call with actio
 - `issues` — list issues
 - `metrics` — show project-level coverage, duplication & issue counts
 - `duplications` — list duplicated files and block details
-- `open` — open an issue with its index
+- `open` — open one or more issues by stable `issueKeys` (preferred) or positional `issueIndex`
+
+For tool calls, `path` selects a configured target alias or SonarQube project root. `pathScope` selects a file or directory inside that project; do not pass source scopes as `path`.
 
 The tool accepts optional issue filters (`severities`, `statuses`, `types`, `rules`, `softwareQualities`, `impactSeverities`) so the agent can fetch just the most relevant issues.
 
@@ -143,7 +153,7 @@ Both families can be used from the `/sonarqube issues` command:
 
 The server mode is auto-detected via the `api/v2/clean-code-policy/mode` endpoint and cached per session.
 
-Use paths directly.
+Use project-root paths directly for targets and `in:` / `pathScope` for source scopes.
 
 ## Configuration sources (precedence order)
 

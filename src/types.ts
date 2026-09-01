@@ -86,6 +86,7 @@ export interface SonarIssueFetchOptions {
   rules?: string[];
   softwareQualities?: string[];
   impactSeverities?: string[];
+  issueKeys?: string[];
   pathScope?: string;
   componentKeys?: string[];
 }
@@ -114,6 +115,7 @@ export interface ResolvedTarget {
 export interface ParsedSonarIssueArgs {
   targetInput?: string;
   issueIndex?: number;
+  issueKeys?: string[];
   filters?: SonarIssueFetchOptions;
 }
 
