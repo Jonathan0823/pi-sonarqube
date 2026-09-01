@@ -115,6 +115,7 @@ export function normalizeIssueFilters(
     rules: normalizeIssueList(filters?.rules),
     softwareQualities: normalizeIssueList(filters?.softwareQualities, true),
     impactSeverities: normalizeIssueList(filters?.impactSeverities, true),
+    issueKeys: normalizeIssueList(filters?.issueKeys),
     pathScope: filters?.pathScope,
     componentKeys: filters?.componentKeys,
   };
@@ -124,6 +125,7 @@ export function normalizeIssueFilters(
     normalized.rules ||
     normalized.softwareQualities ||
     normalized.impactSeverities ||
+    normalized.issueKeys ||
     normalized.pathScope ||
     normalized.componentKeys?.length
     ? normalized
@@ -213,15 +215,34 @@ export function parseIssueFilterToken(
   return undefined;
 }
 
+function parseIssueKeyToken(
+  token: string,
+  allowIssueKeys: boolean,
+): string[] | undefined {
+  if (!allowIssueKeys || !token.toLowerCase().startsWith("issue:")) {
+    return undefined;
+  }
+  const keys = token
+    .slice(token.indexOf(":") + 1)
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+  if (keys.length === 0) throw new Error("issue: requires an issue key");
+  return keys;
+}
+
 export function parseSonarIssueArgs(
   tokens: string[],
   allowIssueIndex = false,
+  allowIssueKeys = false,
 ): {
   targetInput?: string;
   issueIndex?: number;
+  issueKeys?: string[];
   filters?: SonarIssueFetchOptions;
 } {
   const filters: Array<Partial<SonarIssueFetchOptions> | undefined> = [];
+  const issueKeys: string[] = [];
   let targetInput: string | undefined;
   let issueIndex: number | undefined;
 
@@ -229,6 +250,11 @@ export function parseSonarIssueArgs(
     if (!token) continue;
     if (allowIssueIndex && issueIndex === undefined && /^\d+$/.test(token)) {
       issueIndex = Number(token);
+      continue;
+    }
+    const parsedIssueKeys = parseIssueKeyToken(token, allowIssueKeys);
+    if (parsedIssueKeys) {
+      issueKeys.push(...parsedIssueKeys);
       continue;
     }
 
@@ -243,7 +269,12 @@ export function parseSonarIssueArgs(
     }
   }
 
-  return { targetInput, issueIndex, filters: mergeFilters(...filters) };
+  return {
+    targetInput,
+    issueIndex,
+    issueKeys: normalizeIssueList(issueKeys),
+    filters: mergeFilters(...filters),
+  };
 }
 
 function mergeFilterField<T>(
@@ -289,6 +320,8 @@ export function issueFilterLabel(filters?: SonarIssueFetchOptions): string {
     parts.push(`qualities=${filters.softwareQualities.join(",")}`);
   if (filters.impactSeverities?.length)
     parts.push(`impactSeverities=${filters.impactSeverities.join(",")}`);
+  if (filters.issueKeys?.length)
+    parts.push(`issues=${filters.issueKeys.join(",")}`);
   if (filters.pathScope) parts.push(`in:${filters.pathScope}`);
   return parts.join(" • ");
 }
@@ -508,7 +541,7 @@ function buildIssueSearchUrl(
 ): string {
   const url = new URL("/api/issues/search", serverUrl);
   url.searchParams.set("projects", projectKey);
-  url.searchParams.set("resolved", "false");
+  if (!filters?.issueKeys?.length) url.searchParams.set("resolved", "false");
   url.searchParams.set("ps", "100");
   url.searchParams.set("p", String(page));
   if (filters?.severities?.length)
@@ -529,6 +562,8 @@ function buildIssueSearchUrl(
       "impactSeverities",
       filters.impactSeverities.join(","),
     );
+  if (filters?.issueKeys?.length)
+    url.searchParams.set("issues", filters.issueKeys.join(","));
   if (filters?.componentKeys?.length)
     url.searchParams.set("componentKeys", filters.componentKeys.join(","));
   return url.toString();

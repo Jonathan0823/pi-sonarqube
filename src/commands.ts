@@ -157,7 +157,8 @@ function createFilterCompletionList(mode?: CleanCodeMode): AutocompleteItem[] {
     {
       value: "in:",
       label: "in:",
-      description: "path or dir scope (e.g. in:src/api.ts or in:src/)",
+      description:
+        "file or directory inside the selected project (e.g. in:src/api.ts or in:src/)",
     },
   ];
 
@@ -372,19 +373,10 @@ function getInPathCompletions(
 }
 
 function getOpenCompletions(
-  issues: SonarIssue[] | undefined,
   mode: CleanCodeMode | undefined,
   current: string,
 ): AutocompleteItem[] | null {
-  const issueItems = (issues ?? []).slice(0, 10).map((issue, index) => {
-    const lineSuffix = issue.line ? `:${issue.line}` : "";
-    return {
-      value: String(index + 1),
-      label: String(index + 1),
-      description: `${issue.severity} ${issue.filePath}${lineSuffix}`,
-    };
-  });
-  const suggestions = [...issueItems, ...createFilterCompletionList(mode)];
+  const suggestions = createFilterCompletionList(mode);
   const filtered = filterAutocompleteItems(suggestions, current);
   return filtered.length > 0 ? filtered : null;
 }
@@ -494,7 +486,7 @@ export async function sonarArgumentCompletions(
   }
 
   if (lowerCommand === "open") {
-    return getOpenCompletions(issues, mode, current);
+    return getOpenCompletions(mode, current);
   }
 
   if (lowerCommand === "analyze") {
@@ -547,6 +539,7 @@ export type ParsedSonarCommand =
       action: "open";
       targetInput?: string;
       issueIndex?: number;
+      issueKeys?: string[];
       filters?: SonarIssueFetchOptions;
     }
   | { action: "metrics"; targetInput?: string }
@@ -575,7 +568,10 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
     return { action: "issues", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
   if (head === "open") {
-    return { action: "open", ...parseSonarIssueArgs(tokens.slice(1), true) };
+    return {
+      action: "open",
+      ...parseSonarIssueArgs(tokens.slice(1), true, true),
+    };
   }
   if (head === "analyze" || head === "run") {
     return { action: "analyze", ...parseSonarIssueArgs(tokens.slice(1)) };
@@ -600,9 +596,10 @@ export function helpText(): string {
     "SonarQube commands:",
     "",
     "  /sonarqube init [alias] [path]   configure a project target",
-    "  /sonarqube analyze [target]      run analysis for a target or path",
-    "  /sonarqube issues [target]       browse issues for a target or path",
-    "  /sonarqube open [target] <n>     preview issue #n for a target or path",
+    "  /sonarqube analyze [target]      run analysis for a project target",
+    "  /sonarqube issues [target]       browse issues for a project target",
+    "  /sonarqube open [target] <n>     preview positional issue #n",
+    "  /sonarqube open [target] issue:<key>[,<key>] preview stable issue keys",
     "  /sonarqube metrics [target]      show project metrics (no scanner)",
     "  /sonarqube duplications [target] browse duplicated files and blocks",
     "  /sonarqube                       show this help",
@@ -620,6 +617,8 @@ export function helpText(): string {
     "  type /sonarqube and press Tab to complete the subcommand or filters",
     "",
     "Notes:",
+    "  [target] is a configured alias or SonarQube project root.",
+    "  Use in:<path> for a file or directory relative to that project root.",
     "  Legacy filters (severity, type) and MQR filters (quality, impactSeverity)",
     "  cannot be combined in the same command. Use one filter family per query.",
     "",
@@ -638,16 +637,33 @@ export function sonarErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function assertIssueSelection(
+  issueIndex?: number,
+  issueKeys?: string[],
+): void {
+  if (issueIndex !== undefined && issueKeys?.length) {
+    throw new Error("Use either issueIndex or issueKeys, not both.");
+  }
+  if (issueKeys && issueKeys.length > 10) {
+    throw new Error("At most 10 issue keys can be opened at once.");
+  }
+}
+
 // ── Issue formatting ────────────────────────────────────────────────────────
 
-export function formatIssue(issue: SonarIssue, index?: number): string {
+export function formatIssue(
+  issue: SonarIssue,
+  index?: number,
+  includeKey = true,
+): string {
   const loc = issue.line ? `${issue.filePath}:${issue.line}` : issue.filePath;
   const prefix =
     typeof index === "number" ? `${String(index).padStart(2, "0")}. ` : "";
   const rule = issue.ruleName
     ? `${issue.rule} (${issue.ruleName})`
     : issue.rule;
-  return `${prefix}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
+  const key = includeKey ? `[${issue.key}] ` : "";
+  return `${prefix}${key}${issue.severity} ${loc} — ${rule} — ${issue.message}`;
 }
 
 export function formatMetricsOutput(metrics: {
