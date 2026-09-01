@@ -157,7 +157,8 @@ function createFilterCompletionList(mode?: CleanCodeMode): AutocompleteItem[] {
     {
       value: "in:",
       label: "in:",
-      description: "path or dir scope (e.g. in:src/api.ts or in:src/)",
+      description:
+        "file or directory inside the selected project (e.g. in:src/api.ts or in:src/)",
     },
   ];
 
@@ -575,7 +576,10 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
     return { action: "issues", ...parseSonarIssueArgs(tokens.slice(1)) };
   }
   if (head === "open") {
-    return { action: "open", ...parseSonarIssueArgs(tokens.slice(1), true) };
+    return {
+      action: "open",
+      ...parseSonarIssueArgs(tokens.slice(1), true, true),
+    };
   }
   if (head === "analyze" || head === "run") {
     return { action: "analyze", ...parseSonarIssueArgs(tokens.slice(1)) };
@@ -600,9 +604,10 @@ export function helpText(): string {
     "SonarQube commands:",
     "",
     "  /sonarqube init [alias] [path]   configure a project target",
-    "  /sonarqube analyze [target]      run analysis for a target or path",
-    "  /sonarqube issues [target]       browse issues for a target or path",
-    "  /sonarqube open [target] <n>     preview issue #n for a target or path",
+    "  /sonarqube analyze [target]      run analysis for a project target",
+    "  /sonarqube issues [target]       browse issues for a project target",
+    "  /sonarqube open [target] <n>     preview positional issue #n",
+    "  /sonarqube open [target] issue:<key>[,<key>] preview stable issue keys",
     "  /sonarqube metrics [target]      show project metrics (no scanner)",
     "  /sonarqube duplications [target] browse duplicated files and blocks",
     "  /sonarqube                       show this help",

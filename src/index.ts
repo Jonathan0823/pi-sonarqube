@@ -120,7 +120,7 @@ const SonarToolParams = Type.Object({
   pathScope: Type.Optional(
     Type.String({
       description:
-        "Scope issues to a specific file or directory path (e.g. src/api.ts or src/). Use this instead of the `path` parameter for file-level filtering.",
+        "File or directory inside the selected SonarQube project, relative to its project root (e.g. src/api.ts or src/). Filters issues only; use path to select the project.",
     }),
   ),
 });
