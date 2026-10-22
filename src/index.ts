@@ -501,6 +501,7 @@ async function cachedServerConfig(cwd: string): Promise<typeof _cachedConfig> {
 }
 
 const SONARQUBE_COMMAND_PREFIX = "/sonarqube";
+const SONARQUBE_TOOL_ENABLED_ENTRY_TYPE = "sonarqube-tool-enabled";
 
 /** Text after "/sonarqube " in an autocomplete prefix, or undefined if it isn't a /sonarqube command. */
 export function sonarqubeArgumentText(prefix: string): string | undefined {
@@ -515,6 +516,20 @@ export function sonarqubeArgumentText(prefix: string): string | undefined {
 export default function sonarqube(pi: ExtensionAPI) {
   const statesByBaseDir = new Map<string, SonarAnalysisState>();
   let latestState: SonarAnalysisState | undefined;
+  let sonarqubeToolEnabled = false;
+
+  const setSonarqubeToolEnabled = (enabled: boolean) => {
+    const active = new Set(pi.getActiveTools());
+    if (enabled) active.add("sonarqube");
+    else active.delete("sonarqube");
+    pi.setActiveTools(Array.from(active));
+    sonarqubeToolEnabled = enabled;
+  };
+
+  const toggleSonarqubeTool = (enabled: boolean) => {
+    setSonarqubeToolEnabled(enabled);
+    pi.appendEntry(SONARQUBE_TOOL_ENABLED_ENTRY_TYPE, { on: enabled });
+  };
 
   const rememberState = (state: SonarAnalysisState) => {
     statesByBaseDir.set(state.baseDir, state);
@@ -526,9 +541,26 @@ export default function sonarqube(pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (_event, ctx) => {
+    let wantToolEnabled = false;
+    for (const entry of ctx.sessionManager.getEntries()) {
+      if (
+        entry.type === "custom" &&
+        entry.customType === SONARQUBE_TOOL_ENABLED_ENTRY_TYPE
+      ) {
+        const data = entry.data as { on?: unknown } | undefined;
+        if (typeof data?.on === "boolean") wantToolEnabled = data.on;
+      }
+    }
+    setSonarqubeToolEnabled(wantToolEnabled);
     await restore(ctx);
 
     if (ctx.hasUI) {
+      if (!wantToolEnabled) {
+        ctx.ui.notify(
+          "SonarQube tool is disabled; run /sonarqube on to enable it",
+          "info",
+        );
+      }
       ctx.ui.addAutocompleteProvider((current) => ({
         async getSuggestions(lines, cursorLine, cursorCol, options) {
           const line = lines[cursorLine] ?? "";
@@ -794,7 +826,40 @@ export default function sonarqube(pi: ExtensionAPI) {
     },
     handler: async (args, ctx) => {
       try {
+        const action = (args || "").trim().toLowerCase();
+        if (action === "on" || action === "enable") {
+          if (!sonarqubeToolEnabled) toggleSonarqubeTool(true);
+          ctx.ui.notify("SonarQube tool enabled", "info");
+          return;
+        }
+        if (action === "off" || action === "disable") {
+          if (sonarqubeToolEnabled) toggleSonarqubeTool(false);
+          ctx.ui.notify("SonarQube tool disabled", "info");
+          return;
+        }
+        if (action === "status") {
+          ctx.ui.notify(
+            sonarqubeToolEnabled
+              ? "SonarQube tool enabled"
+              : "SonarQube tool disabled; run /sonarqube on to enable it",
+            "info",
+          );
+          return;
+        }
+
         const parsed = parseCommandArgs(args);
+        if (
+          !sonarqubeToolEnabled &&
+          parsed.action !== "help" &&
+          parsed.action !== "init"
+        ) {
+          ctx.ui.notify(
+            "SonarQube is disabled; run /sonarqube on before scanning or querying results",
+            "warning",
+          );
+          return;
+        }
+
         switch (parsed.action) {
           case "help":
             if (ctx.hasUI) ctx.ui.notify(helpText(), "info");

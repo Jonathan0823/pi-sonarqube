@@ -555,6 +555,7 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
   if (tokens.length === 0) return { action: "help" };
 
   const head = tokens[0].toLowerCase();
+  if (head === "help") return { action: "help" };
   if (head === "init") {
     if (tokens.length === 1) return { action: "init" };
     if (tokens.length === 2) {
@@ -602,7 +603,9 @@ export function helpText(): string {
     "  /sonarqube open [target] issue:<key>[,<key>] preview stable issue keys",
     "  /sonarqube metrics [target]      show project metrics (no scanner)",
     "  /sonarqube duplications [target] browse duplicated files and blocks",
+    "  /sonarqube on|off|status          toggle SonarQube tools and operations",
     "  /sonarqube                       show this help",
+    "  run /sonarqube on before scanning or querying results",
     "",
     "Filters:",
     "  /sonarqube issues be CRITICAL",
