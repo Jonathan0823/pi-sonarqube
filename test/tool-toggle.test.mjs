@@ -130,6 +130,8 @@ test("operational slash commands are blocked while disabled", async () => {
   assert.equal(harness.active.has("sonarqube"), false);
   await command.handler("", harness.ctx);
   assert.match(harness.notices.at(-1).message, /SonarQube commands:/);
+  await command.handler("help", harness.ctx);
+  assert.match(harness.notices.at(-1).message, /SonarQube commands:/);
 });
 
 test("toggle state is restored from the latest session entry", async () => {

@@ -555,6 +555,7 @@ export function parseCommandArgs(args: string): ParsedSonarCommand {
   if (tokens.length === 0) return { action: "help" };
 
   const head = tokens[0].toLowerCase();
+  if (head === "help") return { action: "help" };
   if (head === "init") {
     if (tokens.length === 1) return { action: "init" };
     if (tokens.length === 2) {
