@@ -87,7 +87,7 @@ export async function buildDuplicationPreview(
     rendered.push("", `Block ${groupIndex + 1}:`);
     for (const block of group.blocks) {
       try {
-        const lines = await loadLines(block.filePath);
+        const lines = await loadLines(block.filePath); // NOSONAR: preserve block order and reuse cached reads.
         const end = block.from + block.size - 1;
         rendered.push(`  ${block.filePath}:${block.from}-${end}`);
         for (const line of renderRange(lines, block.from, block.size)) {

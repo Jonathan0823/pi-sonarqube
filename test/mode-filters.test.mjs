@@ -7,6 +7,7 @@ import {
   fetchFileDuplications,
   fetchFileDuplicationBlocks,
   fetchIssueSeverityCounts,
+  fetchIssues,
   issueFilterLabel,
   parseIssueFilterToken,
 } from "../dist/api.js";
@@ -45,6 +46,57 @@ test("fetchCleanCodeMode caches by server URL", async () => {
     assert.equal(first, "MQR");
     assert.equal(second, "MQR");
     assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetchIssues resolves each distinct rule name once", async () => {
+  const originalFetch = globalThis.fetch;
+  const ruleRequests = [];
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/issues/search") {
+        return mockResponse({
+          total: 3,
+          issues: [
+            {
+              key: "1",
+              rule: "ts:first",
+              severity: "MINOR",
+              message: "one",
+              component: "demo:a.ts",
+            },
+            {
+              key: "2",
+              rule: "ts:first",
+              severity: "MINOR",
+              message: "two",
+              component: "demo:a.ts",
+            },
+            {
+              key: "3",
+              rule: "ts:second",
+              severity: "MINOR",
+              message: "three",
+              component: "demo:b.ts",
+            },
+          ],
+        });
+      }
+      const rule = url.searchParams.get("key");
+      ruleRequests.push(rule);
+      return mockResponse({ rule: { name: `name:${rule}` } });
+    };
+
+    const issues = await fetchIssues("http://example.test", undefined, "demo");
+
+    assert.deepEqual(ruleRequests.sort(), ["ts:first", "ts:second"]);
+    assert.deepEqual(
+      issues.map((issue) => issue.ruleName),
+      ["name:ts:first", "name:ts:first", "name:ts:second"],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -140,11 +140,10 @@ const SonarToolParams = Type.Object({
 
 // ── State restoration ───────────────────────────────────────────────────────
 
-async function restoreState(
-  pi: ExtensionAPI,
+function restoreState(
   ctx: ExtensionContext,
   statesByBaseDir: Map<string, SonarAnalysisState>,
-): Promise<SonarAnalysisState | undefined> {
+): SonarAnalysisState | undefined {
   statesByBaseDir.clear();
   let latest: SonarAnalysisState | undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
@@ -159,6 +158,34 @@ async function restoreState(
   }
   ctx.ui.setStatus("sonarqube", undefined);
   return latest;
+}
+
+function handleToolControlAction(
+  action: string,
+  ctx: ExtensionCommandContext,
+  enabled: boolean,
+  toggle: (enabled: boolean) => void,
+): boolean {
+  if (action === "on" || action === "enable") {
+    if (!enabled) toggle(true);
+    ctx.ui.notify("SonarQube tool enabled", "info");
+    return true;
+  }
+  if (action === "off" || action === "disable") {
+    if (enabled) toggle(false);
+    ctx.ui.notify("SonarQube tool disabled", "info");
+    return true;
+  }
+  if (action === "status") {
+    ctx.ui.notify(
+      enabled
+        ? "SonarQube tool enabled"
+        : "SonarQube tool disabled; run /sonarqube on to enable it",
+      "info",
+    );
+    return true;
+  }
+  return false;
 }
 
 // ── Analysis orchestration ──────────────────────────────────────────────────
@@ -536,11 +563,7 @@ export default function sonarqube(pi: ExtensionAPI) {
     latestState = state;
   };
 
-  const restore = async (ctx: ExtensionContext) => {
-    latestState = await restoreState(pi, ctx, statesByBaseDir);
-  };
-
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     let wantToolEnabled = false;
     for (const entry of ctx.sessionManager.getEntries()) {
       if (
@@ -552,7 +575,7 @@ export default function sonarqube(pi: ExtensionAPI) {
       }
     }
     setSonarqubeToolEnabled(wantToolEnabled);
-    await restore(ctx);
+    latestState = restoreState(ctx, statesByBaseDir);
 
     if (ctx.hasUI) {
       if (!wantToolEnabled) {
@@ -623,8 +646,8 @@ export default function sonarqube(pi: ExtensionAPI) {
     }
   });
 
-  pi.on("session_tree", async (_event, ctx) => {
-    await restore(ctx);
+  pi.on("session_tree", (_event, ctx) => {
+    latestState = restoreState(ctx, statesByBaseDir);
   });
 
   pi.registerTool({
@@ -827,23 +850,14 @@ export default function sonarqube(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       try {
         const action = (args || "").trim().toLowerCase();
-        if (action === "on" || action === "enable") {
-          if (!sonarqubeToolEnabled) toggleSonarqubeTool(true);
-          ctx.ui.notify("SonarQube tool enabled", "info");
-          return;
-        }
-        if (action === "off" || action === "disable") {
-          if (sonarqubeToolEnabled) toggleSonarqubeTool(false);
-          ctx.ui.notify("SonarQube tool disabled", "info");
-          return;
-        }
-        if (action === "status") {
-          ctx.ui.notify(
-            sonarqubeToolEnabled
-              ? "SonarQube tool enabled"
-              : "SonarQube tool disabled; run /sonarqube on to enable it",
-            "info",
-          );
+        if (
+          handleToolControlAction(
+            action,
+            ctx,
+            sonarqubeToolEnabled,
+            toggleSonarqubeTool,
+          )
+        ) {
           return;
         }
 
