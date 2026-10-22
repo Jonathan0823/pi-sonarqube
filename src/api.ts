@@ -526,7 +526,7 @@ export async function waitForAnalysis(
     if (status === "CANCELED") {
       throw new Error("SonarQube analysis was canceled by the server");
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000)); // NOSONAR: polling requires a delay between server checks.
   }
   throw new Error(`Timed out waiting for SonarQube analysis at ${serverUrl}`);
 }
@@ -664,13 +664,18 @@ export async function fetchIssues(
     );
     total = pageTotal;
 
-    for (const raw of issueRows) {
-      if (!ruleNames.has(raw.rule)) {
+    const missingRules = [...new Set(issueRows.map((raw) => raw.rule))].filter(
+      (rule) => !ruleNames.has(rule),
+    );
+    await Promise.all(
+      missingRules.map(async (rule) => {
         ruleNames.set(
-          raw.rule,
-          await fetchRuleName(serverUrl, token, raw.rule, signal),
+          rule,
+          await fetchRuleName(serverUrl, token, rule, signal),
         );
-      }
+      }),
+    );
+    for (const raw of issueRows) {
       issues.push(mapRawIssue(raw, projectKey, ruleNames));
     }
 

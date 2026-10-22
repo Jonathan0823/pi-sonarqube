@@ -324,7 +324,7 @@ const SONARQUBE_CONFIG_FILE = ".pi/sonarqube.json";
 
 // ── Target discovery ──────────────────────────────────────────────────────
 
-async function execFd(repoRoot: string): Promise<string> {
+function execFd(repoRoot: string): string {
   return execFileSync(
     "fd",
     [
@@ -359,7 +359,7 @@ export async function discoverSonarQubeTargets(
 
   // Try fd first (auto default) or fd-only
   try {
-    const output = await execFd(repoRoot);
+    const output = execFd(repoRoot);
     const parsed = parseDiscoveredPaths(output, repoRoot);
     if (parsed.length > 0 || strategy === "fd") return parsed;
   } catch (_e) {
@@ -401,7 +401,7 @@ async function walkForSonarqubeConfigs(
         if (entry.name.startsWith(".") && entry.name !== ".pi") continue;
         const fullPath = resolve(dir, entry.name);
         if (entry.isDirectory()) {
-          await walk(fullPath, depth + 1);
+          await walk(fullPath, depth + 1); // NOSONAR: keep filesystem traversal sequential and bounded.
         }
       }
       // Check if this dir has .pi/sonarqube.json
