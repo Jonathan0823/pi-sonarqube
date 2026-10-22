@@ -602,6 +602,7 @@ export function helpText(): string {
     "  /sonarqube open [target] issue:<key>[,<key>] preview stable issue keys",
     "  /sonarqube metrics [target]      show project metrics (no scanner)",
     "  /sonarqube duplications [target] browse duplicated files and blocks",
+    "  /sonarqube on|off|status          toggle the model-callable SonarQube tool",
     "  /sonarqube                       show this help",
     "",
     "Filters:",
