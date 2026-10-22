@@ -121,7 +121,7 @@ Issue keys are stable across filtered queries; numeric positions refer only to t
 
 ## Tool (for the LLM)
 
-The extension also registers a `sonarqube` tool that the LLM can call with actions:
+The extension also registers a `sonarqube` tool that the LLM can call with actions. It is disabled by default to keep its prompt guidance and schema out of the active tool context. Use `/sonarqube on`, `/sonarqube off`, or `/sonarqube status` to control it; scan and browse commands remain available either way. As a rough reference, the tool definition and prompt guidance add about 562 tokens per request when enabled, estimated with OpenAI's `o200k_base` tokenizer; actual `gpt-6-luna` token accounting may differ.
 
 - `analyze` — run analysis
 - `issues` — list issues
