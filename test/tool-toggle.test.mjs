@@ -107,6 +107,31 @@ test("toggle command enables/disables the tool and records session state", async
   );
 });
 
+test("operational slash commands are blocked while disabled", async () => {
+  const harness = createHarness([], true);
+  await harness.handlers.get("session_start")({}, harness.ctx);
+  const command = harness.commands.get("sonarqube");
+
+  for (const args of [
+    "analyze",
+    "issues",
+    "metrics",
+    "duplications",
+    "open target 1",
+  ]) {
+    await command.handler(args, harness.ctx);
+    assert.deepEqual(harness.notices.at(-1), {
+      message:
+        "SonarQube is disabled; run /sonarqube on before scanning or querying results",
+      level: "warning",
+    });
+  }
+
+  assert.equal(harness.active.has("sonarqube"), false);
+  await command.handler("", harness.ctx);
+  assert.match(harness.notices.at(-1).message, /SonarQube commands:/);
+});
+
 test("toggle state is restored from the latest session entry", async () => {
   const harness = createHarness([
     { type: "custom", customType: ENABLED_ENTRY_TYPE, data: { on: true } },

@@ -848,6 +848,18 @@ export default function sonarqube(pi: ExtensionAPI) {
         }
 
         const parsed = parseCommandArgs(args);
+        if (
+          !sonarqubeToolEnabled &&
+          parsed.action !== "help" &&
+          parsed.action !== "init"
+        ) {
+          ctx.ui.notify(
+            "SonarQube is disabled; run /sonarqube on before scanning or querying results",
+            "warning",
+          );
+          return;
+        }
+
         switch (parsed.action) {
           case "help":
             if (ctx.hasUI) ctx.ui.notify(helpText(), "info");
