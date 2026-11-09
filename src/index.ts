@@ -779,7 +779,7 @@ export default function sonarqube(pi: ExtensionAPI) {
         ? ` ${theme.fg("muted", issueFilterLabel(filters))}`
         : "";
       return new Text(
-        `${theme.fg("toolTitle", theme.bold("sonarqube"))} ${theme.fg("muted", args.action)}${
+        `${theme.fg("toolTitle", theme.bold("sonarqube"))} ${theme.fg("muted", String(args.action))}${
           args.path ? ` ${theme.fg("accent", args.path)}` : ""
         }${filterText}`,
         0,
