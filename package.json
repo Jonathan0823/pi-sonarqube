@@ -18,6 +18,9 @@
   "files": [
     "dist/",
     "src/",
+    ".claude-plugin/",
+    ".mcp.json",
+    "commands/",
     "README.md",
     "CONTRIBUTING.md",
     "LICENSE"
