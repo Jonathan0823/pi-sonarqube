@@ -462,14 +462,17 @@ async function getWorkspaceAliases(
 
 export async function sonarArgumentCompletions(
   argumentText: string,
-  issues?: SonarIssue[],
-  mode?: CleanCodeMode,
-  cwd?: string,
-  serverUrl?: string,
-  token?: string,
-  projectKey?: string,
-  configDirName?: string,
+  options: {
+    issues?: SonarIssue[];
+    mode?: CleanCodeMode;
+    cwd?: string;
+    serverUrl?: string;
+    token?: string;
+    projectKey?: string;
+    configDirName?: string;
+  } = {},
 ): Promise<AutocompleteItem[] | null> {
+  const { mode, cwd, serverUrl, token, projectKey, configDirName } = options;
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
   const commandMatches = SONAR_COMMANDS.filter((item) =>

@@ -299,10 +299,16 @@ export async function loadWorkspaceRegistry(
   const repoRoot = await findRepoRoot(startDir);
   const workspaces: Record<string, string> = {};
   // Read fallbacks first so the primary directory's entries win.
-  for (const dir of readConfigDirs(configDirName).reverse()) {
-    const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(
-      workspaceRegistryPath(repoRoot, dir),
-    );
+  const raws = await Promise.all(
+    readConfigDirs(configDirName)
+      .reverse()
+      .map((dir) =>
+        readOptionalJson<Partial<SonarWorkspaceRegistry>>(
+          workspaceRegistryPath(repoRoot, dir),
+        ),
+      ),
+  );
+  for (const raw of raws) {
     if (raw?.workspaces && typeof raw.workspaces === "object") {
       Object.assign(workspaces, raw.workspaces);
     }
@@ -359,7 +365,7 @@ export interface DiscoveredTarget {
 
 function execFd(repoRoot: string): string {
   return execFileSync(
-    "fd",
+    "fd", // NOSONAR: fd is an optional tool with no fixed install path; PATH lookup is intended.
     [
       "--hidden",
       "-g",
@@ -431,6 +437,16 @@ async function walkForSonarqubeConfigs(
   const configDirs = readConfigDirs(configDirName);
   const targetDirs: string[] = [];
 
+  async function hasConfig(dir: string): Promise<boolean> {
+    for (const name of configDirs) {
+      const found = await stat(resolve(dir, name, "sonarqube.json")).catch(
+        () => undefined,
+      );
+      if (found) return true;
+    }
+    return false;
+  }
+
   async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 6) return;
     try {
@@ -445,15 +461,7 @@ async function walkForSonarqubeConfigs(
         }
       }
       // Check if this dir has <configDir>/sonarqube.json
-      for (const name of configDirs) {
-        const found = await stat(resolve(dir, name, "sonarqube.json")).catch(
-          () => undefined,
-        );
-        if (found) {
-          if (dir !== repoRoot) targetDirs.push(dir);
-          break;
-        }
-      }
+      if (dir !== repoRoot && (await hasConfig(dir))) targetDirs.push(dir);
     } catch {
       // skip unreadable dirs
     }
