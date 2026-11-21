@@ -251,12 +251,15 @@ async function issuesOrOpen(
   filters: SonarIssueFetchOptions | undefined,
   issueKeys: string[] | undefined,
 ): Promise<SonarActionResult> {
-  const targetState = await resolveTargetState(
-    env,
-    env.store,
-    request.path,
-    normalizeIssueFilters({ ...filters, issueKeys }),
-  );
+  const positional = request.action === "open" && !issueKeys?.length;
+  const targetState = positional
+    ? env.store.get((await resolveTarget(env, request.path)).baseDir)
+    : await resolveTargetState(
+        env,
+        env.store,
+        request.path,
+        normalizeIssueFilters({ ...filters, issueKeys }),
+      );
   if (!targetState) {
     return soft(
       "No SonarQube analysis has been run for this target yet.",
