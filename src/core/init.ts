@@ -47,7 +47,7 @@ export async function initProject(
   return [
     `SonarQube config saved to ${projectConfigPath(baseDir, env.configDirName)}`,
     token
-      ? "The token was stored in that file. Prefer setting SONARQUBE_TOKEN or SONAR_TOKEN in your environment so it stays out of the transcript and project files."
+      ? `The token was stored in that file. Add ${env.configDirName}/sonarqube.json to .gitignore so it is not committed, and prefer setting SONARQUBE_TOKEN or SONAR_TOKEN in your environment so it stays out of the transcript and project files.`
       : "No token stored. Set SONARQUBE_TOKEN or SONAR_TOKEN in your environment if the server requires authentication.",
   ].join("\n");
 }

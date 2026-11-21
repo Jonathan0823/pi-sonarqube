@@ -130,6 +130,7 @@ export const DEFAULT_SONAR_EXCLUSIONS = [
   "**/.env*",
   ".next/**",
   ".pi/**",
+  ".claude/**",
   "build/**",
   "out/**",
   ".turbo/**",
@@ -508,9 +509,10 @@ export async function gatherTargets(
 }
 
 export async function resolveTarget(
-  ctx: Pick<ResolveCtx, "cwd" | "configDirName">,
+  ctx: Pick<ResolveCtx, "cwd" | "configDirName" | "commandHint">,
   targetInput?: string,
 ): Promise<ResolvedTarget> {
+  const initHint = (ctx.commandHint ?? defaultCommandHint)("init");
   const { repoRoot, registry } = await loadWorkspaceRegistry(
     ctx.cwd,
     ctx.configDirName,
@@ -543,11 +545,11 @@ export async function resolveTarget(
   const known = knownTargets(registry);
   if (known.length > 0) {
     throw new Error(
-      `Unknown SonarQube target "${targetInput}". Known targets: ${known.join(", ")}. Use /sonarqube init <alias> <path> to add one.`,
+      `Unknown SonarQube target "${targetInput}". Known targets: ${known.join(", ")}. Use ${initHint} <alias> <path> to add one.`,
     );
   }
   throw new Error(
-    `Unknown SonarQube target "${targetInput}". Use /sonarqube init <alias> <path> to add one.`,
+    `Unknown SonarQube target "${targetInput}". Use ${initHint} <alias> <path> to add one.`,
   );
 }
 
@@ -581,8 +583,12 @@ export interface ResolveCtx {
   cwd: string;
   /** Name of the host's per-project config directory (e.g. ".pi"). */
   configDirName: string;
+  /** Host-correct text for a /sonarqube subcommand; defaults to Pi's "/sonarqube <name>". */
+  commandHint?: (command: string) => string;
   signal?: AbortSignal;
 }
+
+export const defaultCommandHint = (command: string) => `/sonarqube ${command}`;
 
 export async function resolveConfig(
   ctx: ResolveCtx,

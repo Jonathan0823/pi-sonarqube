@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
 import type {
   CommandRunner,
   FileDuplication,
@@ -26,6 +26,7 @@ import {
   assertFiltersNotAmbiguous,
 } from "./api.js";
 import {
+  defaultCommandHint,
   loadProjectConfig,
   looksLikePath,
   resolveConfig,
@@ -72,6 +73,12 @@ export interface SonarCoreEnv {
   configDirName: string;
   exec: CommandRunner;
   store: SessionStateStore;
+  /** Host-correct text for a subcommand, e.g. "/sonarqube init" (default) or "/sonarqube-init". */
+  commandHint?: (command: string) => string;
+  /** Positional `open` uses the session's latest list instead of refetching (default: refetch, falling back to the cached state). */
+  positionalOpenFromSession?: boolean;
+  /** Reject `path` values that are source paths inside a project instead of project roots. */
+  strictTargetPath?: boolean;
   /** Called once the analysis target is resolved and about to be scanned. */
   startProgress?: (config: SonarProjectConfig) => AnalysisProgress;
 }
@@ -80,12 +87,15 @@ export interface SonarCoreEnv {
  * Outcome of an action. `blocks`, when present, is `text` split into the
  * separate text blocks a host may want to present individually. Expected
  * non-error outcomes that the user should see (nothing analyzed yet, nothing
- * found, ...) have `details.error` and `details.code` set; real failures throw.
+ * found, ...) have `soft: true` and `details.error` and `details.code` set;
+ * real failures throw.
  */
 export interface SonarActionResult {
   text: string;
   blocks?: string[];
   details: object;
+  /** Set on expected non-success outcomes; hosts may flag these as errors. */
+  soft?: true;
 }
 
 function soft(
@@ -94,7 +104,7 @@ function soft(
   error = text,
   extra: object = {},
 ): SonarActionResult {
-  return { text, details: { error, code, ...extra } };
+  return { text, details: { error, code, ...extra }, soft: true };
 }
 
 export async function runSonarAction(
@@ -116,7 +126,11 @@ export async function runSonarAction(
   if (issueKeys?.length && request.action !== "open") {
     throw new Error("issueKeys can only be used with the open action.");
   }
-  if (request.action !== "metrics" && request.action !== "duplications") {
+  if (
+    env.strictTargetPath &&
+    request.action !== "metrics" &&
+    request.action !== "duplications"
+  ) {
     await assertPathIsProjectRoot(env, request.path);
   }
 
@@ -133,6 +147,10 @@ export async function runSonarAction(
     default:
       return issuesOrOpen(env, request, filters, issueKeys);
   }
+}
+
+function commandHint(env: SonarCoreEnv, command: string): string {
+  return (env.commandHint ?? defaultCommandHint)(command);
 }
 
 async function isProjectRoot(dir: string, configDirName: string) {
@@ -160,11 +178,11 @@ async function assertPathIsProjectRoot(
   }
   const { baseDir, repoRoot, alias } = await resolveTarget(env, path);
   if (alias || (await isProjectRoot(baseDir, env.configDirName))) return;
-  for (
-    let dir = dirname(baseDir);
-    dir.startsWith(repoRoot);
-    dir = dirname(dir)
-  ) {
+  const insideRepo = (dir: string) => {
+    const rel = relative(repoRoot, dir);
+    return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+  };
+  for (let dir = dirname(baseDir); insideRepo(dir); dir = dirname(dir)) {
     if (await isProjectRoot(dir, env.configDirName)) throw misuse;
     if (dir === repoRoot || dir === dirname(dir)) break;
   }
@@ -185,7 +203,7 @@ async function analyzeProject(
 
   try {
     progress?.setPhase("Running sonar-scanner...");
-    await runScanner(env.exec, config, env.signal);
+    await runScanner(env.exec, config, env.signal, env.commandHint);
 
     progress?.setPhase("Reading scanner report...");
     const report = await readReportTask(config.baseDir);
@@ -251,7 +269,10 @@ async function issuesOrOpen(
   filters: SonarIssueFetchOptions | undefined,
   issueKeys: string[] | undefined,
 ): Promise<SonarActionResult> {
-  const positional = request.action === "open" && !issueKeys?.length;
+  const positional =
+    env.positionalOpenFromSession &&
+    request.action === "open" &&
+    !issueKeys?.length;
   const targetState = positional
     ? env.store.get((await resolveTarget(env, request.path)).baseDir)
     : await resolveTargetState(
@@ -337,7 +358,7 @@ async function resolveConfigOrSoft(
     return await resolveConfig(env, path);
   } catch (cause) {
     return soft(
-      "Project not configured. Run /sonarqube init first.",
+      `Project not configured. Run ${commandHint(env, "init")} first.`,
       "not_configured",
       "Project not configured.",
       { cause },
@@ -377,7 +398,7 @@ async function metrics(
   if (!data) {
     await assertServerResponds(config);
     return soft(
-      `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
+      `Project "${config.projectKey}" has not been analyzed yet. Run ${commandHint(env, "analyze")} first.`,
       "not_analyzed",
     );
   }
@@ -423,7 +444,7 @@ async function duplications(
     const msg = sonarErrorMessage(error);
     if (msg.includes("403") || msg.includes("Insufficient privileges")) {
       return soft(
-        "SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via /sonarqube init.",
+        `SonarQube token needs 'See Source Code' permission to list duplicated files. Grant it in SonarQube project permissions, then update the token via ${commandHint(env, "init")}.`,
         "forbidden",
         "Token missing 'See Source Code' permission.",
       );
