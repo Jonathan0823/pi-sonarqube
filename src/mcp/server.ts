@@ -9,6 +9,7 @@ import {
   type SonarCoreEnv,
 } from "../core/actions.js";
 import { sonarErrorMessage } from "../core/commands.js";
+import { initProject } from "../core/init.js";
 import type { CommandRunner, SonarAnalysisState } from "../core/types.js";
 
 const DESCRIPTION = [
@@ -17,6 +18,7 @@ const DESCRIPTION = [
   "The `path` parameter selects a configured target alias or SonarQube project root. Never pass a source file or subdirectory as `path`.",
   "Use `pathScope` for a file or directory inside that project. Example: path: 'apps/web', pathScope: 'src/components/'.",
   "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
+  "Use action 'init' once per project to write .claude/sonarqube.json; it takes optional path, serverUrl, projectKey and token. Prefer the SONARQUBE_TOKEN or SONAR_TOKEN environment variable over passing token.",
   "Prefer stable `issueKeys` over positional `issueIndex` when opening issue source. Multiple keys can be opened in one call.",
 ].join("\n");
 
@@ -24,7 +26,28 @@ const list = (description: string) =>
   z.array(z.string()).optional().describe(description);
 
 const inputSchema = {
-  action: z.enum(["analyze", "issues", "open", "metrics", "duplications"]),
+  action: z.enum([
+    "analyze",
+    "issues",
+    "open",
+    "metrics",
+    "duplications",
+    "init",
+  ]),
+  serverUrl: z
+    .string()
+    .optional()
+    .describe("init: SonarQube server URL (default http://localhost:9000)"),
+  projectKey: z
+    .string()
+    .optional()
+    .describe("init: SonarQube project key (default: directory slug)"),
+  token: z
+    .string()
+    .optional()
+    .describe(
+      "init: SonarQube token. Prefer the SONARQUBE_TOKEN or SONAR_TOKEN environment variable so secrets stay out of the transcript.",
+    ),
   path: z
     .string()
     .optional()
@@ -113,6 +136,10 @@ server.registerTool(
       },
     };
     try {
+      if (params.action === "init") {
+        const text = await initProject(params, env);
+        return { content: [{ type: "text" as const, text }] };
+      }
       if (!["metrics", "duplications"].includes(params.action)) {
         throw new Error(`Action "${params.action}" is not available yet.`);
       }

@@ -109,6 +109,7 @@ test("tool schema carries pathScope and issueKeys guidance", async () => {
       "open",
       "metrics",
       "duplications",
+      "init",
     ]);
   });
 });
