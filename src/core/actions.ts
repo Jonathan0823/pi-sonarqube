@@ -21,6 +21,7 @@ import {
   fetchFileDuplicationBlocks,
   createAnalysisState,
   fetchCleanCodeMode,
+  fetchJson,
   assertFiltersNotAmbiguous,
 } from "./api.js";
 import { resolveConfig } from "./config.js";
@@ -297,6 +298,28 @@ async function resolveConfigOrSoft(
   }
 }
 
+/** Distinguishes an unreachable server or rejected token from "not analyzed". */
+async function assertServerResponds(config: SonarProjectConfig): Promise<void> {
+  try {
+    await fetchJson(
+      `${config.serverUrl}/api/measures/component?component=${encodeURIComponent(config.projectKey)}&metricKeys=coverage`,
+      config.token,
+    );
+  } catch (error) {
+    const message = sonarErrorMessage(error);
+    if (message.includes("(404 ")) return;
+    if (message.includes("(401 ") || message.includes("(403 ")) {
+      throw new Error(
+        `SonarQube authentication failed at ${config.serverUrl}. Check the token. ${message}`,
+      );
+    }
+    if (message.includes("SonarQube API request failed")) throw error;
+    throw new Error(
+      `Cannot reach SonarQube at ${config.serverUrl}: ${message}`,
+    );
+  }
+}
+
 async function metrics(
   env: SonarCoreEnv,
   path: string | undefined,
@@ -305,6 +328,7 @@ async function metrics(
   if ("text" in config) return config;
   const data = await loadMetricsData(config, env.signal);
   if (!data) {
+    await assertServerResponds(config);
     return soft(
       `Project "${config.projectKey}" has not been analyzed yet. Run /sonarqube analyze first.`,
       "not_analyzed",
