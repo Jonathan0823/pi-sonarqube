@@ -32,4 +32,10 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - run: npm ci
-      - run: npm publish --access public
+      - name: Publish (pre-release versions go to the "next" tag)
+        run: |
+          if [[ "$(node -p "require('./package.json').version")" == *-* ]]; then
+            npm publish --access public --tag next
+          else
+            npm publish --access public
+          fi
