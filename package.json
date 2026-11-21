@@ -71,8 +71,13 @@
     }
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "^1.6.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
+    "@earendil-works/pi-tui": "^1.6.0",
+    "@types/node": "^26.6.6",
     "c8": "^11.0.0",
     "prettier": "^3.9.5",
+    "typebox": "^1.4.7",
     "typescript": "^5.7.0"
   },
   "pi": {
