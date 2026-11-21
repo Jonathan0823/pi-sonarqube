@@ -20,7 +20,7 @@ import {
   CleanCodeMode,
 } from "./types.js";
 import type { CommandRunner } from "./types.js";
-import { parseProperties, trimTrailing } from "./config.js";
+import { defaultCommandHint, parseProperties, trimTrailing } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
 
@@ -384,6 +384,7 @@ export function extractScannerHint(
   output: string,
   config: SonarProjectConfig,
   exitCode?: number,
+  hint: (command: string) => string = defaultCommandHint,
 ): string {
   const lines = output.toLowerCase();
 
@@ -402,7 +403,7 @@ export function extractScannerHint(
         : "";
     return [
       `Authentication failed for ${config.serverUrl}${defaultHint}.`,
-      "Run `/sonarqube init` to set up your server URL and token, then retry.",
+      `Run \`${hint("init")}\` to set up your server URL and token, then retry.`,
       "Or set SONARQUBE_TOKEN in your environment.",
     ].join(" ");
   }
@@ -412,7 +413,7 @@ export function extractScannerHint(
     return [
       `Access denied by ${config.serverUrl}.`,
       'Your token may not have the required permissions ("Execute Analysis").',
-      "Run `/sonarqube init` to update the token or check server permissions.",
+      `Run \`${hint("init")}\` to update the token or check server permissions.`,
     ].join(" ");
   }
 
@@ -423,7 +424,7 @@ export function extractScannerHint(
   if (isConnectionError) {
     return [
       `Cannot reach SonarQube server at ${config.serverUrl}.`,
-      "Is the server running? Run `/sonarqube init` to check the server URL.",
+      `Is the server running? Run \`${hint("init")}\` to check the server URL.`,
       "Default: http://localhost:9000",
     ].join(" ");
   }
@@ -435,7 +436,7 @@ export function extractScannerHint(
   ) {
     return [
       `SonarQube API at ${config.serverUrl} returned "not found".`,
-      "The default server URL is http://localhost:9000. Run `/sonarqube init` to configure.",
+      `The default server URL is http://localhost:9000. Run \`${hint("init")}\` to configure.`,
     ].join(" ");
   }
 
@@ -448,6 +449,7 @@ export async function runScanner(
   exec: CommandRunner,
   config: SonarProjectConfig,
   signal?: AbortSignal,
+  commandHint?: (command: string) => string,
 ): Promise<string> {
   const scannerCheck =
     process.platform === "win32"
@@ -487,7 +489,7 @@ export async function runScanner(
       .filter(Boolean)
       .join("\n")
       .trim();
-    const hint = extractScannerHint(output, config, result.code);
+    const hint = extractScannerHint(output, config, result.code, commandHint);
     const detail = output ? `\n\n${output.slice(-4000)}` : "";
     const message = hint
       ? `SonarQube scan failed for ${config.projectKey}. ${hint}`

@@ -132,6 +132,9 @@ server.registerTool(
       cwd: process.cwd(),
       signal: extra.signal,
       configDirName: ".claude",
+      commandHint: (command) => `/sonarqube-${command}`,
+      positionalOpenFromSession: true,
+      strictTargetPath: true,
       exec,
       store: {
         get: (baseDir) => states.get(baseDir),
@@ -154,9 +157,8 @@ server.registerTool(
         );
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
-      const failed = "error" in result.details;
       return {
-        isError: failed,
+        isError: result.soft === true,
         content: (result.blocks ?? [result.text]).map((text) => ({
           type: "text" as const,
           text,

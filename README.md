@@ -36,7 +36,7 @@ The repo is also a Claude Code plugin marketplace. The plugin starts the MCP ser
 /plugin install sonarqube@pi-sonarqube
 ```
 
-Run `/sonarqube-init [path] [serverUrl] [projectKey]` once per project (defaults: `http://localhost:9000` and the directory slug). It writes `.claude/sonarqube.json` and registers the target in `.claude/sonarqube.workspaces.json`. The Claude Code adapter reads `.claude` first and falls back to existing `.pi` config. Provide tokens through `SONARQUBE_TOKEN` / `SONAR_TOKEN` in your environment rather than in chat, so they stay out of the transcript.
+Run `/sonarqube-init [path] [serverUrl] [projectKey]` once per project (defaults: `http://localhost:9000` and the directory slug). It writes `.claude/sonarqube.json` and registers the target in `.claude/sonarqube.workspaces.json`. The Claude Code adapter reads `.claude` first and falls back to existing `.pi` config. Provide tokens through `SONARQUBE_TOKEN` / `SONAR_TOKEN` in your environment rather than in chat, so they stay out of the transcript. If you do store a token in `.claude/sonarqube.json`, add that file to `.gitignore`.
 
 Use `/sonarqube-duplications [target] [file number]` to list duplicated files, or pass a file number to see that file's duplicated blocks and line ranges. Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
 
@@ -153,6 +153,8 @@ Issue keys are stable across filtered queries; numeric positions refer only to t
 | `/sonarqube duplications [target]`        | Browse duplicated files and blocks with drill-down                         |
 | `/sonarqube open [target] <n>`            | Preview source at positional issue #n                                      |
 | `/sonarqube open [target] issue:<keys>`   | Preview source for one or more stable issue keys                           |
+| `/sonarqube on\|off\|status`              | Toggle the LLM `sonarqube` tool and scanning/query commands                |
+| `/sonarqube`                              | Show help                                                                  |
 
 ## Tool (for the LLM)
 
@@ -198,7 +200,7 @@ Use project-root paths directly for targets and `in:` / `pathScope` for source s
    - `SONARQUBE_URL` / `SONAR_HOST_URL`
    - `SONARQUBE_TOKEN` / `SONAR_TOKEN`
    - `SONAR_PROJECT_KEY`
-2. **Project config** — `.pi/sonarqube.json` (set via `/sonarqube init`); in Claude Code, `.claude/sonarqube.json` (set via `/sonarqube-init`) with `.pi` as fallback. Prefer environment variables for tokens.
+2. **Project config** — `.pi/sonarqube.json` (set via `/sonarqube init`); in Claude Code, `.claude/sonarqube.json` (set via `/sonarqube-init`) with `.pi` as fallback. Prefer environment variables for tokens; if a token is stored in `.claude/sonarqube.json`, gitignore that file.
 3. **Scan properties** — `sonar-project.properties`
 4. **Defaults** — `http://localhost:9000`, project key from directory slug
 
