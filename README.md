@@ -39,6 +39,8 @@ Use `/sonarqube-duplications [target] [file number]` to list duplicated files, o
 
 Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-scanner`, waits for the SonarQube task, and reports issues and duplication; `/sonarqube-issues [target] [in:path] [filters]` lists the latest issues. Filters are `type:`, `severity:`, `status:`, `rule:` (legacy) or `quality:`, `impactSeverity:` (MQR); mixing the two families is an error. `path` must be a target alias or project root, never a source path; use `in:` to scope inside it.
 
+Use `/sonarqube-open [target] <n>` to show the source of issue number `n` from the latest issue list for that target in the current session (run analyze or issues first), or `/sonarqube-open [target] issue:<keys>` for one or more stable issue keys (comma-separated, up to 10). Pass exactly one of index or keys.
+
 ## Quick start
 
 ### 1. Init project config
