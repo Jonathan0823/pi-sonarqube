@@ -1,6 +1,6 @@
 {
   "name": "sonarqube",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Run SonarQube analysis and browse issues, metrics and duplications from Claude Code.",
   "author": {
     "name": "Jonathan0823"
