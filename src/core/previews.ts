@@ -163,7 +163,13 @@ export async function resolveTargetState(
     return await loadProjectIssuesFromApi(ctx, targetInput, filters);
   } catch (error) {
     const cached = store.get(resolvedTarget.baseDir);
-    if (cached) return cached;
+    const httpFailure = sonarErrorMessage(error).includes(
+      "SonarQube API request failed",
+    );
+    const sameFilters =
+      JSON.stringify(normalizeIssueFilters(cached?.filters)) ===
+      JSON.stringify(normalizeIssueFilters(filters));
+    if (cached && !httpFailure && sameFilters) return cached;
     throw error;
   }
 }
