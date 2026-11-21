@@ -49,6 +49,18 @@ const inputSchema = {
   rules: list("Rule keys to fetch"),
   softwareQualities: list("Software qualities to fetch (e.g. MAINTAINABILITY)"),
   impactSeverities: list("Impact severities to fetch (e.g. HIGH)"),
+  view: z
+    .enum(["list"])
+    .optional()
+    .describe(
+      "duplications: 'list' returns the duplicated files without code previews.",
+    ),
+  fileIndex: z
+    .number()
+    .optional()
+    .describe(
+      "duplications: 1-based file number from the list; returns that file's duplicated blocks and line ranges.",
+    ),
   pathScope: z
     .string()
     .optional()
@@ -101,7 +113,7 @@ server.registerTool(
       },
     };
     try {
-      if (params.action !== "metrics") {
+      if (!["metrics", "duplications"].includes(params.action)) {
         throw new Error(`Action "${params.action}" is not available yet.`);
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
