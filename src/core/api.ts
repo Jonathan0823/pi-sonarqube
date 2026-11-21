@@ -1,16 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import type {
-  SonarIssue,
-  SonarAnalysisState,
-  SonarProjectConfig,
-  SonarIssueFetchOptions,
-  SonarDuplicationMeasures,
-  IssueSeverityCounts,
-  IssueQualityCounts,
-  FileDuplication,
-  DuplicationBlockGroup,
-} from "./types.js";
 import {
   SONAR_SEVERITIES,
   SONAR_STATUSES,
@@ -18,8 +7,17 @@ import {
   SONAR_SOFTWARE_QUALITIES,
   SONAR_IMPACT_SEVERITIES,
   CleanCodeMode,
+  type CommandRunner,
+  type SonarIssue,
+  type SonarAnalysisState,
+  type SonarProjectConfig,
+  type SonarIssueFetchOptions,
+  type SonarDuplicationMeasures,
+  type IssueSeverityCounts,
+  type IssueQualityCounts,
+  type FileDuplication,
+  type DuplicationBlockGroup,
 } from "./types.js";
-import type { CommandRunner } from "./types.js";
 import { defaultCommandHint, parseProperties, trimTrailing } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────

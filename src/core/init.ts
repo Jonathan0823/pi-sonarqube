@@ -47,12 +47,10 @@ export async function initProject(
   const baseAlias = slugify(basename(baseDir));
   const relBase = relative(repoRoot, baseDir) || ".";
   let alias = baseAlias;
-  for (
-    let n = 2;
-    registry.workspaces[alias] && registry.workspaces[alias] !== relBase;
-    n++
-  ) {
+  let n = 2;
+  while (registry.workspaces[alias] && registry.workspaces[alias] !== relBase) {
     alias = `${baseAlias}-${n}`;
+    n++;
   }
   await saveWorkspaceRegistry(repoRoot, alias, baseDir, env.configDirName);
 

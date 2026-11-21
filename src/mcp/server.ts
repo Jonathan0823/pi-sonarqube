@@ -105,8 +105,9 @@ const exec: CommandRunner = (command, args, options) =>
         maxBuffer: 64 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
-        const code =
-          error === null ? 0 : typeof error.code === "number" ? error.code : 1;
+        let code = 1;
+        if (error === null) code = 0;
+        else if (typeof error.code === "number") code = error.code;
         resolve({
           stdout,
           stderr: stderr || (error && code === 1 ? error.message : ""),
@@ -138,8 +139,12 @@ server.registerTool(
       exec,
       store: {
         get: (baseDir) => states.get(baseDir),
-        remember: (state) => void states.set(state.baseDir, state),
-        persist: (state) => void states.set(state.baseDir, state),
+        remember: (state) => {
+          states.set(state.baseDir, state);
+        },
+        persist: (state) => {
+          states.set(state.baseDir, state);
+        },
       },
     };
     try {

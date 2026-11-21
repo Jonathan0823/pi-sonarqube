@@ -64,7 +64,8 @@ test("issue keys remain in LLM output but stay hidden from UI autocomplete", asy
   assert.match(formatIssue(issue("key-a"), 1), /^01\. \[key-a\]/);
 
   const suggestions =
-    (await sonarArgumentCompletions("open ", [issue("key-a")])) ?? [];
+    (await sonarArgumentCompletions("open ", { issues: [issue("key-a")] })) ??
+    [];
   assert.ok(!suggestions.some((item) => item.value === "issue:key-a"));
 });
 

@@ -30,7 +30,6 @@ import {
   saveWorkspaceRegistry,
   resolveConfig,
 } from "./core/config.js";
-import { issueFilterLabel } from "./core/api.js";
 import {
   runSonarAction,
   type SonarActionRequest,
@@ -50,7 +49,7 @@ import {
   targetLabel,
   sonarErrorMessage,
 } from "./core/commands.js";
-import { normalizeIssueFilters } from "./core/api.js";
+import { issueFilterLabel, normalizeIssueFilters } from "./core/api.js";
 import {
   startAnalysisUi,
   showIssueBrowser,
@@ -500,16 +499,14 @@ export default function sonarqube(pi: ExtensionAPI) {
             splitSonarArgumentContext(argumentText);
           const cfg = await cachedServerConfig(ctx.cwd);
           const extraItems =
-            (await sonarArgumentCompletions(
-              argumentText,
-              latestState?.issues,
-              latestState?.cleanCodeMode,
-              undefined,
-              cfg?.serverUrl,
-              cfg?.token,
-              cfg?.projectKey,
-              CONFIG_DIR_NAME,
-            )) ?? [];
+            (await sonarArgumentCompletions(argumentText, {
+              issues: latestState?.issues,
+              mode: latestState?.cleanCodeMode,
+              serverUrl: cfg?.serverUrl,
+              token: cfg?.token,
+              projectKey: cfg?.projectKey,
+              configDirName: CONFIG_DIR_NAME,
+            })) ?? [];
           const currentSuggestions = await current.getSuggestions(
             lines,
             cursorLine,
@@ -665,16 +662,15 @@ export default function sonarqube(pi: ExtensionAPI) {
       "Run a local SonarQube analysis, browse the latest issues, or init project config",
     getArgumentCompletions: async (argumentPrefix) => {
       const cfg = await cachedServerConfig(process.cwd());
-      return sonarArgumentCompletions(
-        argumentPrefix,
-        latestState?.issues,
-        latestState?.cleanCodeMode,
-        process.cwd(),
-        cfg?.serverUrl,
-        cfg?.token,
-        cfg?.projectKey,
-        CONFIG_DIR_NAME,
-      );
+      return sonarArgumentCompletions(argumentPrefix, {
+        issues: latestState?.issues,
+        mode: latestState?.cleanCodeMode,
+        cwd: process.cwd(),
+        serverUrl: cfg?.serverUrl,
+        token: cfg?.token,
+        projectKey: cfg?.projectKey,
+        configDirName: CONFIG_DIR_NAME,
+      });
     },
     handler: async (args, ctx) => {
       const run: RunAction = (request) => runSonarAction(request, coreEnv(ctx));
@@ -796,6 +792,13 @@ async function commandMetrics(
   }
 }
 
+async function resolveTargetInput(
+  ctx: ExtensionCommandContext,
+  targetInput?: string,
+): Promise<string | null | undefined> {
+  return targetInput || pickOrResolveTarget(ctx);
+}
+
 async function commandDuplications(
   ctx: ExtensionCommandContext,
   run: RunAction,
@@ -803,11 +806,9 @@ async function commandDuplications(
   fileIndex?: number,
   filters?: SonarIssueFetchOptions,
 ): Promise<void> {
-  if (!targetInput) {
-    const pickResult = await pickOrResolveTarget(ctx);
-    if (pickResult === null) return;
-    targetInput = pickResult;
-  }
+  const resolvedTarget = await resolveTargetInput(ctx, targetInput);
+  if (resolvedTarget === null) return;
+  targetInput = resolvedTarget;
   const request = {
     action: "duplications",
     path: targetInput,
@@ -820,21 +821,17 @@ async function commandDuplications(
   );
   const details = result.details as SoftDetails & { files?: FileDuplication[] };
   rethrowConfigError(details);
-  if (details.code === "forbidden") {
-    if (ctx.hasUI) {
-      ctx.ui.notify(
-        "SonarQube token needs 'See Source Code' permission to list duplicated files. Update the token permissions in SonarQube and run /sonarqube init to update the token.",
-        "warning",
-      );
-    }
-    return;
-  }
-  if (details.code === "no_duplications") {
-    if (ctx.hasUI) ctx.ui.notify("No duplications found.", "info");
-    return;
-  }
-  if (details.code === "file_not_found") {
-    if (ctx.hasUI) ctx.ui.notify(result.text, "error");
+  const softNotices: Record<string, [string, "warning" | "info" | "error"]> = {
+    forbidden: [
+      "SonarQube token needs 'See Source Code' permission to list duplicated files. Update the token permissions in SonarQube and run /sonarqube init to update the token.",
+      "warning",
+    ],
+    no_duplications: ["No duplications found.", "info"],
+    file_not_found: [result.text, "error"],
+  };
+  const notice = details.code ? softNotices[details.code] : undefined;
+  if (notice) {
+    if (ctx.hasUI) ctx.ui.notify(...notice);
     return;
   }
 
@@ -884,12 +881,8 @@ async function commandIssuesOrOpen(
   parsed: IssueCommandArgs,
 ): Promise<void> {
   assertIssueSelection(parsed.issueIndex, parsed.issueKeys);
-  let targetInput = parsed.targetInput;
-  if (!targetInput) {
-    const pickResult = await pickOrResolveTarget(ctx);
-    if (pickResult === null) return;
-    targetInput = pickResult;
-  }
+  const targetInput = await resolveTargetInput(ctx, parsed.targetInput);
+  if (targetInput === null) return;
   const result = await run({
     ...parsed.filters,
     action: parsed.action === "issues" ? "issues" : "open",
@@ -913,13 +906,10 @@ async function commandIssuesOrOpen(
     return;
   }
   if (parsed.issueKeys?.length) {
-    const missing = (result.details as { missingIssueKeys: string[] })
-      .missingIssueKeys;
-    if (ctx.mode === "tui") {
-      await ctx.ui.editor("SonarQube issue previews", result.text);
-    } else if (ctx.hasUI) {
-      ctx.ui.notify(result.text, missing.length ? "warning" : "info");
-    }
+    const { missingIssueKeys } = result.details as {
+      missingIssueKeys: string[];
+    };
+    await showIssueKeyPreviews(ctx, result.text, missingIssueKeys.length > 0);
     return;
   }
   if (details.code === "issue_not_found") {
@@ -930,6 +920,18 @@ async function commandIssuesOrOpen(
     selectedIssue: SonarIssue;
   };
   await openIssuePreview(ctx, state, state.selectedIssue);
+}
+
+async function showIssueKeyPreviews(
+  ctx: ExtensionCommandContext,
+  text: string,
+  hasMissing: boolean,
+): Promise<void> {
+  if (ctx.mode === "tui") {
+    await ctx.ui.editor("SonarQube issue previews", text);
+  } else if (ctx.hasUI) {
+    ctx.ui.notify(text, hasMissing ? "warning" : "info");
+  }
 }
 
 async function commandShowIssues(
