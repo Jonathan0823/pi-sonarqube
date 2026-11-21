@@ -650,8 +650,13 @@ export default function sonarqube(pi: ExtensionAPI) {
         return renderIssueListResult(state, expanded, theme);
       }
 
-      const text = result.content[0];
-      return new Text(text?.type === "text" ? text.text : "", 0, 0);
+      return new Text(
+        result.content
+          .flatMap((block) => (block.type === "text" ? [block.text] : []))
+          .join("\n"),
+        0,
+        0,
+      );
     },
   });
 
@@ -857,6 +862,10 @@ async function commandDuplications(
   );
   if (choice == null) return;
   const selected = await run({ ...request, fileIndex: choice + 1 });
+  if (selected.soft) {
+    ctx.ui.notify(selected.text, "warning");
+    return;
+  }
   ctx.ui.setEditorText(selected.text);
   ctx.ui.notify("Duplication loaded into editor — press Enter to send", "info");
 }
