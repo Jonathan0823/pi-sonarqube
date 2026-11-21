@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -22,8 +22,12 @@ async function withFakeSonar(handler, run) {
   }
 }
 
-async function withClient(serverUrl, run) {
+async function withClient(serverUrl, run, files = {}) {
   const cwd = await mkdtemp(join(tmpdir(), "pi-sonarqube-mcp-"));
+  for (const [name, content] of Object.entries(files)) {
+    await mkdir(dirname(join(cwd, name)), { recursive: true });
+    await writeFile(join(cwd, name), content);
+  }
   const client = new Client({ name: "test", version: "0" });
   await client.connect(
     new StdioClientTransport({
@@ -154,5 +158,103 @@ test("metrics reports an auth failure as a tool error", async () => {
         assert.equal(result.isError, true);
         assert.match(result.content[0].text, /authentication failed/);
       }),
+  );
+});
+
+function duplicationSonar(req, res) {
+  const url = new URL(req.url, "http://x");
+  if (url.pathname === "/api/measures/component_tree") {
+    return json(res, 200, {
+      components: [
+        {
+          key: "demo:src/a.js",
+          path: "src/a.js",
+          measures: [
+            { metric: "duplicated_lines", value: "4" },
+            { metric: "duplicated_lines_density", value: "20.0" },
+            { metric: "duplicated_blocks", value: "1" },
+          ],
+        },
+        {
+          key: "demo:src/b.js",
+          path: "src/b.js",
+          measures: [
+            { metric: "duplicated_lines", value: "2" },
+            { metric: "duplicated_lines_density", value: "5.5" },
+            { metric: "duplicated_blocks", value: "1" },
+          ],
+        },
+        { key: "demo:src/c.js", path: "src/c.js", measures: [] },
+      ],
+    });
+  }
+  if (url.pathname === "/api/duplications/show") {
+    return json(res, 200, {
+      duplications: [
+        {
+          blocks: [
+            { from: 1, size: 3, _ref: "1" },
+            { from: 10, size: 3, _ref: "2" },
+          ],
+        },
+      ],
+      files: { 1: { key: "demo:src/a.js" }, 2: { key: "demo:src/b.js" } },
+    });
+  }
+  return sonar(req, res);
+}
+
+const sources = {
+  "src/a.js": "one\ntwo\nthree\n",
+  "src/b.js": Array.from({ length: 12 }, (_, i) => `line${i + 1}`).join("\n"),
+};
+
+test("duplications view=list returns duplicated files with stats", async () => {
+  await withFakeSonar(duplicationSonar, (url) =>
+    withClient(url, async (client) => {
+      const result = await client.callTool({
+        name: "sonarqube",
+        arguments: { action: "duplications", view: "list" },
+      });
+      assert.notEqual(result.isError, true);
+      const text = result.content[0].text;
+      assert.match(text, /Duplicated files \(2\)/);
+      assert.match(text, /src\/a\.js  dup%=20\.0  blocks=1  lines=4/);
+      assert.match(text, /src\/b\.js  dup%=5\.5/);
+      assert.doesNotMatch(text, /c\.js/);
+    }),
+  );
+});
+
+test("duplications fileIndex drills into block locations and line ranges", async () => {
+  await withFakeSonar(duplicationSonar, (url) =>
+    withClient(
+      url,
+      async (client) => {
+        const result = await client.callTool({
+          name: "sonarqube",
+          arguments: { action: "duplications", fileIndex: 1 },
+        });
+        assert.notEqual(result.isError, true);
+        const text = result.content[0].text;
+        assert.match(text, /Duplications in src\/a\.js/);
+        assert.match(text, /src\/a\.js:1-3/);
+        assert.match(text, /src\/b\.js:10-12/);
+        assert.match(text, /line11/);
+      },
+      sources,
+    ),
+  );
+});
+
+test("duplications reports an unknown file number", async () => {
+  await withFakeSonar(duplicationSonar, (url) =>
+    withClient(url, async (client) => {
+      const result = await client.callTool({
+        name: "sonarqube",
+        arguments: { action: "duplications", fileIndex: 9 },
+      });
+      assert.match(result.content[0].text, /File #9 not found/);
+    }),
   );
 });

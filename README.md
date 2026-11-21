@@ -35,7 +35,7 @@ The repo is also a Claude Code plugin marketplace. The plugin starts the MCP ser
 
 Run `/sonarqube-init [path] [serverUrl] [projectKey]` once per project (defaults: `http://localhost:9000` and the directory slug). It writes `.claude/sonarqube.json` and registers the target in `.claude/sonarqube.workspaces.json`. The Claude Code adapter reads `.claude` first and falls back to existing `.pi` config. Provide tokens through `SONARQUBE_TOKEN` / `SONAR_TOKEN` in your environment rather than in chat, so they stay out of the transcript.
 
-Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
+Use `/sonarqube-duplications [target] [file number]` to list duplicated files, or pass a file number to see that file's duplicated blocks and line ranges. Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
 
 ## Quick start
 
