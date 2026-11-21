@@ -954,7 +954,12 @@ export async function fetchFileDuplications(
   if (pathScope && baseDir) {
     const absPath = resolve(baseDir, pathScope);
     const relPrefix = relative(baseDir, absPath);
-    results = results.filter((f) => f.filePath.startsWith(relPrefix));
+    results = results.filter(
+      (f) =>
+        relPrefix === "" ||
+        f.filePath === relPrefix ||
+        f.filePath.startsWith(`${relPrefix}/`),
+    );
   }
 
   results.sort((left, right) => {

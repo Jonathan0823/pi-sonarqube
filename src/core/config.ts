@@ -394,7 +394,7 @@ export async function discoverSonarQubeTargets(
   // Try fd first (auto default) or fd-only
   try {
     const output = execFd(repoRoot);
-    const parsed = parseDiscoveredPaths(output, repoRoot);
+    const parsed = parseDiscoveredPaths(output, repoRoot, configDirName);
     if (parsed.length > 0 || strategy === "fd") return parsed;
   } catch (_e) {
     if (strategy === "fd") throw _e;
@@ -406,11 +406,14 @@ export async function discoverSonarQubeTargets(
 function parseDiscoveredPaths(
   output: string,
   repoRoot: string,
+  configDirName: string,
 ): DiscoveredTarget[] {
   const lines = output.trim().split("\n").filter(Boolean);
+  const configDirs = readConfigDirs(configDirName);
   const seen = new Set<string>();
   const targets: DiscoveredTarget[] = [];
   for (const line of lines) {
+    if (!configDirs.includes(basename(dirname(line)))) continue;
     const dir = resolve(repoRoot, dirname(dirname(line)));
     if (dir === repoRoot) continue;
     const key = relative(repoRoot, dir);
