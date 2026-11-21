@@ -1,5 +1,42 @@
 // ── Public types ──────────────────────────────────────────────────────────────
 
+/** Result of running an external command; same shape as Pi's `pi.exec`. */
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+  killed?: boolean;
+}
+
+/** Runs an external command on behalf of the core (injected by the host). */
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; signal?: AbortSignal; timeout?: number },
+) => Promise<CommandResult>;
+
+/** Session-scoped storage of analysis results (injected by the host). */
+export interface SessionStateStore {
+  /** Last analysis state remembered for a project base directory. */
+  get(baseDir: string): SonarAnalysisState | undefined;
+  /** Remember a state in memory for this session. */
+  remember(state: SonarAnalysisState): void;
+  /** Persist a freshly produced analysis state in the host's session log. */
+  persist(state: SonarAnalysisState): void;
+}
+
+/** Structurally compatible with the autocomplete items hosts render. */
+export interface AutocompleteItem {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface AutocompleteSuggestions {
+  items: AutocompleteItem[];
+  prefix: string;
+}
+
 export type SonarAction = "analyze" | "issues" | "open" | "init";
 
 export interface SonarIssue {

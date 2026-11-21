@@ -10,7 +10,7 @@ import {
   formatIssue,
   parseCommandArgs,
   sonarArgumentCompletions,
-} from "../dist/commands.js";
+} from "../dist/core/commands.js";
 
 function mockResponse(body, status = 200) {
   return {
