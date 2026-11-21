@@ -9,8 +9,9 @@ Call the sonarqube tool with action "issues".
 Parse the arguments (`$ARGUMENTS`) as space-separated tokens:
 
 - `in:<path>` sets `pathScope` (a file or directory inside the target).
-- `type:`, `severity:`, `status:`, `rule:` set the legacy filters `types`, `severities`, `statuses`, `rules` (comma-separated values allowed).
-- `quality:`, `impactSeverity:` set the MQR filters `softwareQualities`, `impactSeverities`. Never mix legacy and MQR filters.
+- `type:`, `severity:` set the legacy filters `types`, `severities` (comma-separated values allowed). They cannot be combined with `quality:` or `impactSeverity:`.
+- `status:`, `rule:` set the filters `statuses`, `rules` (comma-separated values allowed). They combine with either family.
+- `quality:`, `impactSeverity:` set the MQR filters `softwareQualities`, `impactSeverities`.
 - Any other bare token is the target (`path`): a configured alias or project root. Omit `path` if there is none.
 
 Then list the returned issues, most severe first.

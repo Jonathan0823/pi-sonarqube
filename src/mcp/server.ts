@@ -59,7 +59,7 @@ const inputSchema = {
     .number()
     .optional()
     .describe(
-      "Legacy 1-based issue position in this call's query results. Prefer issueKeys for stable opening.",
+      "Legacy 1-based position in the session's latest issues list from a prior issues or analyze call (not this call's filters). Prefer issueKeys for stable opening.",
     ),
   issueKeys: z
     .array(z.string().describe("Stable SonarQube issue key"))
@@ -150,7 +150,7 @@ server.registerTool(
       if (
         params.action === "open" &&
         params.issueIndex === undefined &&
-        !params.issueKeys?.length
+        !params.issueKeys?.some((key) => key.trim())
       ) {
         throw new Error(
           "The open action requires either issueIndex or issueKeys.",

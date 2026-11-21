@@ -40,7 +40,7 @@ Run `/sonarqube-init [path] [serverUrl] [projectKey]` once per project (defaults
 
 Use `/sonarqube-duplications [target] [file number]` to list duplicated files, or pass a file number to see that file's duplicated blocks and line ranges. Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
 
-Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-scanner`, waits for the SonarQube task, and reports issues and duplication; `/sonarqube-issues [target] [in:path] [filters]` lists the latest issues. Filters are `type:`, `severity:`, `status:`, `rule:` (legacy) or `quality:`, `impactSeverity:` (MQR); mixing the two families is an error. `path` must be a target alias or project root, never a source path; use `in:` to scope inside it.
+Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-scanner`, waits for the SonarQube task, and reports issues and duplication; `/sonarqube-issues [target] [in:path] [filters]` lists the latest issues. Filters are `type:`, `severity:` (legacy), `status:`, `rule:` (either family), and `quality:`, `impactSeverity:` (MQR); `type:` and `severity:` cannot be combined with `quality:` or `impactSeverity:`. `path` must be a target alias or project root, never a source path; use `in:` to scope inside it.
 
 Use `/sonarqube-open [target] <n>` to show the source of issue number `n` from the latest issue list for that target in the current session (run analyze or issues first), or `/sonarqube-open [target] issue:<keys>` for one or more stable issue keys (comma-separated, up to 10). Pass exactly one of index or keys.
 
@@ -188,7 +188,7 @@ Both families can be used from the `/sonarqube issues` command:
 /sonarqube issues quality:SECURITY impactSeverity:HIGH
 ```
 
-**Important:** Legacy filters and MQR filters cannot be combined in the same query. If you mix them (e.g., `type:BUG quality:SECURITY`), you'll see an error telling you to pick one family.
+**Important:** `type:` and `severity:` cannot be combined with `quality:` or `impactSeverity:` in the same query. `status:` and `rule:` work with either family. If you mix them (e.g., `type:BUG quality:SECURITY`), you'll see an error telling you to pick one family.
 
 The server mode is auto-detected via the `api/v2/clean-code-policy/mode` endpoint and cached per session.
 
