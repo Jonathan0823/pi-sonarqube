@@ -10,11 +10,11 @@ import {
   fetchIssues,
   issueFilterLabel,
   parseIssueFilterToken,
-} from "../dist/api.js";
+} from "../dist/core/api.js";
 import {
   formatMetricsOutput,
   sonarArgumentCompletions,
-} from "../dist/commands.js";
+} from "../dist/core/commands.js";
 
 function mockResponse(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);

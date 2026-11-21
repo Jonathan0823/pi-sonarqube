@@ -8,7 +8,7 @@ import {
   discoverSonarQubeTargets,
   gatherTargets,
   saveWorkspaceRegistry,
-} from "../dist/config.js";
+} from "../dist/core/config.js";
 
 // ── Strategy helpers ─────────────────────────────────────────────────────────
 
@@ -64,14 +64,14 @@ after(async () => {
 
 testBoth("discovers single sonarqube config", async (strategy) => {
   const root = await makeRepo(["apps/web"]);
-  const targets = await discoverSonarQubeTargets(root, strategy);
+  const targets = await discoverSonarQubeTargets(root, ".pi", strategy);
   assert.equal(targets.length, 1);
-  assert.equal(targets[0].dir, resolve(root, "apps/web"));
+  assert.equal(targets[0].dir, resolve(root, "apps/web"), ".pi");
 });
 
 testBoth("discovers multiple sonarqube configs", async (strategy) => {
   const root = await makeRepo(["apps/web", "apps/api", "libs/shared"]);
-  const targets = await discoverSonarQubeTargets(root, strategy);
+  const targets = await discoverSonarQubeTargets(root, ".pi", strategy);
   assert.equal(targets.length, 3);
 
   const dirs = targets.map((t) => t.dir).sort();
@@ -84,7 +84,7 @@ testBoth("discovers multiple sonarqube configs", async (strategy) => {
 
 testBoth("returns empty when no sonarqube configs exist", async (strategy) => {
   const root = await makeRepo([]); // repo root with .git but no configs
-  const targets = await discoverSonarQubeTargets(root, strategy);
+  const targets = await discoverSonarQubeTargets(root, ".pi", strategy);
   assert.equal(targets.length, 0);
 });
 
@@ -97,7 +97,7 @@ testBoth("filters out repo root when config is at root", async (strategy) => {
     JSON.stringify({ serverUrl: "http://localhost:9000", projectKey: "root" }) +
       "\n",
   );
-  const targets = await discoverSonarQubeTargets(root, strategy);
+  const targets = await discoverSonarQubeTargets(root, ".pi", strategy);
   assert.equal(targets.length, 0); // skipped because it's the repo root
 });
 
@@ -118,9 +118,9 @@ testBoth("skips node_modules and .git", async (strategy) => {
     JSON.stringify({ serverUrl: "http://localhost:9000", projectKey: "bad" }) +
       "\n",
   );
-  const targets = await discoverSonarQubeTargets(root, strategy);
+  const targets = await discoverSonarQubeTargets(root, ".pi", strategy);
   assert.equal(targets.length, 1);
-  assert.equal(targets[0].dir, resolve(root, "apps/web"));
+  assert.equal(targets[0].dir, resolve(root, "apps/web"), ".pi");
 });
 
 // ── gatherTargets ───────────────────────────────────────────────────────────
@@ -128,9 +128,9 @@ testBoth("skips node_modules and .git", async (strategy) => {
 test("gatherTargets merges registry and discovered targets", async () => {
   const root = await makeRepo(["apps/web", "apps/api"]);
   // Register an alias for web
-  await saveWorkspaceRegistry(root, "web", resolve(root, "apps/web"));
+  await saveWorkspaceRegistry(root, "web", resolve(root, "apps/web"), ".pi");
 
-  const { repoRoot, targets } = await gatherTargets(root);
+  const { repoRoot, targets } = await gatherTargets(root, ".pi");
   assert.equal(repoRoot, root);
 
   // Should have both: web (from registry, alias preserved) and api (from discovery)
@@ -148,9 +148,9 @@ test("gatherTargets merges registry and discovered targets", async () => {
 test("gatherTargets deduplicates by path", async () => {
   const root = await makeRepo(["myapp"]);
   // Register an alias that points to the same dir
-  await saveWorkspaceRegistry(root, "myapp", resolve(root, "myapp"));
+  await saveWorkspaceRegistry(root, "myapp", resolve(root, "myapp"), ".pi");
 
-  const { targets } = await gatherTargets(root);
+  const { targets } = await gatherTargets(root, ".pi");
   assert.equal(targets.length, 1); // no duplicate
   assert.equal(targets[0].alias, "myapp"); // registry wins
 });

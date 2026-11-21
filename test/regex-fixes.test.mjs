@@ -7,8 +7,8 @@ import {
   slugify,
   normalizeServerUrl,
   ensureDefaultSonarProjectProperties,
-} from "../dist/config.js";
-import { resolvePathScope } from "../dist/api.js";
+} from "../dist/core/config.js";
+import { resolvePathScope } from "../dist/core/api.js";
 import { sonarqubeArgumentText } from "../dist/index.js";
 
 let tempDirs = [];

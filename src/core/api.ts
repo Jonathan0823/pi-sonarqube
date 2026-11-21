@@ -1,4 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type {
@@ -20,6 +19,7 @@ import {
   SONAR_IMPACT_SEVERITIES,
   CleanCodeMode,
 } from "./types.js";
+import type { CommandRunner } from "./types.js";
 import { parseProperties, trimTrailing } from "./config.js";
 
 // ── Clean code mode detection ────────────────────────────────────────────────
@@ -445,18 +445,18 @@ export function extractScannerHint(
 // ── Scanner interaction ─────────────────────────────────────────────────────
 
 export async function runScanner(
-  pi: ExtensionAPI,
+  exec: CommandRunner,
   config: SonarProjectConfig,
   signal?: AbortSignal,
 ): Promise<string> {
   const scannerCheck =
     process.platform === "win32"
-      ? await pi.exec("cmd", ["/d", "/s", "/c", "where", "sonar-scanner"], {
+      ? await exec("cmd", ["/d", "/s", "/c", "where", "sonar-scanner"], {
           cwd: config.baseDir,
           signal,
           timeout: 10_000,
         })
-      : await pi.exec("sh", ["-lc", "command -v sonar-scanner"], {
+      : await exec("sh", ["-lc", "command -v sonar-scanner"], {
           cwd: config.baseDir,
           signal,
           timeout: 10_000,
@@ -477,7 +477,7 @@ export async function runScanner(
     args.push(`-Dsonar.token=${config.token}`);
   }
 
-  const result = await pi.exec("sonar-scanner", args, {
+  const result = await exec("sonar-scanner", args, {
     cwd: config.baseDir,
     signal,
     timeout: 30 * 60 * 1000,

@@ -170,7 +170,9 @@ Use project-root paths directly for targets and `in:` / `pathScope` for source s
 ```
 packages/pi-sonarqube/
 ├── src/
-│   └── index.ts          # Extension source + init command + config
+│   ├── index.ts          # Pi adapter: tool, /sonarqube command, session state
+│   ├── ui.ts             # Pi TUI: browsers, analysis widget
+│   └── core/             # Host-agnostic core (no Pi imports); runSonarAction entry
 ├── dist/
 │   ├── index.js          # Compiled output
 │   ├── index.d.ts        # Type declarations

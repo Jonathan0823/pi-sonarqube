@@ -1,4 +1,3 @@
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
@@ -95,12 +94,18 @@ export async function readOptionalJson<T>(
 
 // ── Config file paths ───────────────────────────────────────────────────────
 
-export function projectConfigPath(baseDir: string): string {
-  return resolve(baseDir, CONFIG_DIR_NAME, "sonarqube.json");
+export function projectConfigPath(
+  baseDir: string,
+  configDirName: string,
+): string {
+  return resolve(baseDir, configDirName, "sonarqube.json");
 }
 
-export function sonarqubeConfigDir(baseDir: string): string {
-  return resolve(baseDir, CONFIG_DIR_NAME);
+export function sonarqubeConfigDir(
+  baseDir: string,
+  configDirName: string,
+): string {
+  return resolve(baseDir, configDirName);
 }
 
 export function sonarProjectPropertiesPath(baseDir: string): string {
@@ -223,18 +228,22 @@ export async function ensureDefaultSonarProjectProperties(
 
 export async function loadProjectConfig(
   baseDir: string,
+  configDirName: string,
 ): Promise<SonarInitConfig | undefined> {
-  return readOptionalJson<SonarInitConfig>(projectConfigPath(baseDir));
+  return readOptionalJson<SonarInitConfig>(
+    projectConfigPath(baseDir, configDirName),
+  );
 }
 
 export async function saveProjectConfig(
   baseDir: string,
   config: SonarInitConfig,
+  configDirName: string,
 ): Promise<void> {
-  const dir = sonarqubeConfigDir(baseDir);
+  const dir = sonarqubeConfigDir(baseDir, configDirName);
   await mkdir(dir, { recursive: true });
   await writeFile(
-    projectConfigPath(baseDir),
+    projectConfigPath(baseDir, configDirName),
     JSON.stringify(config, null, 2) + "\n",
     "utf8",
   );
@@ -244,8 +253,11 @@ export async function saveProjectConfig(
 
 const WORKSPACE_REGISTRY_FILE = "sonarqube.workspaces.json";
 
-export function workspaceRegistryPath(repoRoot: string): string {
-  return resolve(repoRoot, CONFIG_DIR_NAME, WORKSPACE_REGISTRY_FILE);
+export function workspaceRegistryPath(
+  repoRoot: string,
+  configDirName: string,
+): string {
+  return resolve(repoRoot, configDirName, WORKSPACE_REGISTRY_FILE);
 }
 
 async function hasGitRootMarker(dir: string): Promise<boolean> {
@@ -269,10 +281,11 @@ export async function findRepoRoot(startDir: string): Promise<string> {
 
 export async function loadWorkspaceRegistry(
   startDir: string,
+  configDirName: string,
 ): Promise<{ repoRoot: string; registry: SonarWorkspaceRegistry }> {
   const repoRoot = await findRepoRoot(startDir);
   const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(
-    workspaceRegistryPath(repoRoot),
+    workspaceRegistryPath(repoRoot, configDirName),
   );
   const workspaces =
     raw?.workspaces && typeof raw.workspaces === "object"
@@ -285,12 +298,18 @@ export async function saveWorkspaceRegistry(
   startDir: string,
   alias: string,
   targetDir: string,
+  configDirName: string,
 ): Promise<void> {
-  const { repoRoot, registry } = await loadWorkspaceRegistry(startDir);
+  const { repoRoot, registry } = await loadWorkspaceRegistry(
+    startDir,
+    configDirName,
+  );
   registry.workspaces[alias] = relative(repoRoot, targetDir) || ".";
-  await mkdir(sonarqubeConfigDir(repoRoot), { recursive: true });
+  await mkdir(sonarqubeConfigDir(repoRoot, configDirName), {
+    recursive: true,
+  });
   await writeFile(
-    workspaceRegistryPath(repoRoot),
+    workspaceRegistryPath(repoRoot, configDirName),
     JSON.stringify(registry, null, 2) + "\n",
     "utf8",
   );
@@ -319,8 +338,6 @@ export interface DiscoveredTarget {
   dir: string;
   alias?: string;
 }
-
-const SONARQUBE_CONFIG_FILE = ".pi/sonarqube.json";
 
 // ── Target discovery ──────────────────────────────────────────────────────
 
@@ -351,10 +368,11 @@ function execFd(repoRoot: string): string {
 
 export async function discoverSonarQubeTargets(
   repoRoot: string,
+  configDirName: string,
   strategy?: "auto" | "fd" | "walk",
 ): Promise<DiscoveredTarget[]> {
   if (strategy === "walk") {
-    return walkForSonarqubeConfigs(repoRoot);
+    return walkForSonarqubeConfigs(repoRoot, configDirName);
   }
 
   // Try fd first (auto default) or fd-only
@@ -366,7 +384,7 @@ export async function discoverSonarQubeTargets(
     if (strategy === "fd") throw _e;
   }
 
-  return walkForSonarqubeConfigs(repoRoot);
+  return walkForSonarqubeConfigs(repoRoot, configDirName);
 }
 
 function parseDiscoveredPaths(
@@ -389,6 +407,7 @@ function parseDiscoveredPaths(
 
 async function walkForSonarqubeConfigs(
   repoRoot: string,
+  configDirName: string,
 ): Promise<DiscoveredTarget[]> {
   const configDirs: string[] = [];
 
@@ -398,15 +417,16 @@ async function walkForSonarqubeConfigs(
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name === "node_modules" || entry.name === ".git") continue;
-        if (entry.name.startsWith(".") && entry.name !== ".pi") continue;
+        if (entry.name.startsWith(".") && entry.name !== configDirName)
+          continue;
         const fullPath = resolve(dir, entry.name);
         if (entry.isDirectory()) {
           await walk(fullPath, depth + 1); // NOSONAR: keep filesystem traversal sequential and bounded.
         }
       }
-      // Check if this dir has .pi/sonarqube.json
+      // Check if this dir has <configDir>/sonarqube.json
       try {
-        await stat(resolve(dir, SONARQUBE_CONFIG_FILE));
+        await stat(resolve(dir, configDirName, "sonarqube.json"));
         if (dir !== repoRoot) configDirs.push(dir);
       } catch {
         // no config here
@@ -442,15 +462,19 @@ export interface MappedTarget {
  */
 export async function gatherTargets(
   startDir: string,
+  configDirName: string,
 ): Promise<{ repoRoot: string; targets: MappedTarget[] }> {
-  const { repoRoot, registry } = await loadWorkspaceRegistry(startDir);
+  const { repoRoot, registry } = await loadWorkspaceRegistry(
+    startDir,
+    configDirName,
+  );
   const mapped = new Map<string, MappedTarget>();
 
   for (const [alias, relPath] of Object.entries(registry.workspaces)) {
     mapped.set(relPath, { alias, path: relPath });
   }
 
-  const discovered = await discoverSonarQubeTargets(repoRoot);
+  const discovered = await discoverSonarQubeTargets(repoRoot, configDirName);
   for (const d of discovered) {
     const relPath = relative(repoRoot, d.dir);
     if (!mapped.has(relPath)) {
@@ -465,10 +489,13 @@ export async function gatherTargets(
 }
 
 export async function resolveTarget(
-  ctx: { cwd: string },
+  ctx: Pick<ResolveCtx, "cwd" | "configDirName">,
   targetInput?: string,
 ): Promise<ResolvedTarget> {
-  const { repoRoot, registry } = await loadWorkspaceRegistry(ctx.cwd);
+  const { repoRoot, registry } = await loadWorkspaceRegistry(
+    ctx.cwd,
+    ctx.configDirName,
+  );
   if (!targetInput) {
     return { baseDir: ctx.cwd, repoRoot };
   }
@@ -506,7 +533,7 @@ export async function resolveTarget(
 }
 
 export async function resolveInitTarget(
-  ctx: { cwd: string },
+  ctx: ResolveCtx,
   alias?: string,
   targetInput?: string,
 ): Promise<ResolvedTarget> {
@@ -516,7 +543,10 @@ export async function resolveInitTarget(
   }
 
   if (alias) {
-    const { repoRoot, registry } = await loadWorkspaceRegistry(ctx.cwd);
+    const { repoRoot, registry } = await loadWorkspaceRegistry(
+      ctx.cwd,
+      ctx.configDirName,
+    );
     const aliasTarget = registry.workspaces[alias];
     if (aliasTarget) {
       return { baseDir: resolve(repoRoot, aliasTarget), repoRoot, alias };
@@ -528,8 +558,10 @@ export async function resolveInitTarget(
 
 // ── Config resolution ───────────────────────────────────────────────────────
 
-interface ResolveCtx {
+export interface ResolveCtx {
   cwd: string;
+  /** Name of the host's per-project config directory (e.g. ".pi"). */
+  configDirName: string;
   signal?: AbortSignal;
 }
 
@@ -541,7 +573,7 @@ export async function resolveConfig(
   const propertiesPath = resolve(baseDir, "sonar-project.properties");
   const propertiesText = await readOptionalText(propertiesPath);
   const props = propertiesText ? parseProperties(propertiesText) : {};
-  const projectCfg = await loadProjectConfig(baseDir);
+  const projectCfg = await loadProjectConfig(baseDir, ctx.configDirName);
 
   const serverUrl = normalizeServerUrl(
     process.env.SONARQUBE_URL ??
