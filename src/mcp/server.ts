@@ -141,11 +141,13 @@ server.registerTool(
         return { content: [{ type: "text" as const, text }] };
       }
       if (
-        !["metrics", "duplications", "analyze", "issues"].includes(
-          params.action,
-        )
+        params.action === "open" &&
+        params.issueIndex === undefined &&
+        !params.issueKeys?.length
       ) {
-        throw new Error(`Action "${params.action}" is not available yet.`);
+        throw new Error(
+          "The open action requires either issueIndex or issueKeys.",
+        );
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
       const failed = "error" in result.details;
