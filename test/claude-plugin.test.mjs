@@ -26,7 +26,7 @@ test(".mcp.json launches the published package bin, not gitignored dist", async 
   const server = mcpServers.sonarqube;
   assert.equal(server.command, "npx");
   const [bin] = Object.keys(pkg.bin);
-  assert.deepEqual(server.args, ["-y", "-p", `${pkg.name}@latest`, bin]);
+  assert.deepEqual(server.args, ["-y", "-p", pkg.name, bin]);
 });
 
 test("/sonarqube-metrics command calls the metrics action with the target", async () => {
