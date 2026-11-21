@@ -152,6 +152,14 @@ test("positional open with no prior list says no analysis yet", async () => {
   );
 });
 
+test("open rejects blank-only issueKeys with the selector error", async () => {
+  await withClient("http://127.0.0.1:1", async (client) => {
+    const blank = await call(client, { action: "open", issueKeys: [" "] });
+    assert.equal(blank.isError, true);
+    assert.match(blank.text, /issueIndex or issueKeys/);
+  });
+});
+
 test("open with both or neither of issueIndex and issueKeys is a clear error", async () => {
   await withFakeSonar((url) =>
     withClient(url, async (client) => {
