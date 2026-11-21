@@ -1,6 +1,6 @@
 {
   "name": "@jonathan0823/pi-sonarqube",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "SonarQube extension for Pi — run local analysis and browse issues.",
   "type": "module",
   "main": "dist/index.js",
@@ -12,9 +12,15 @@
     },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "pi-sonarqube-mcp": "dist/mcp/server.js"
+  },
   "files": [
     "dist/",
     "src/",
+    ".claude-plugin/",
+    ".mcp.json",
+    "commands/",
     "README.md",
     "CONTRIBUTING.md",
     "LICENSE"
@@ -50,14 +56,37 @@
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@earendil-works/pi-ai": "^1.6.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
+    "@earendil-works/pi-tui": "^1.6.0",
+    "@types/node": "^26.6.6",
     "c8": "^11.0.0",
     "prettier": "^3.9.5",
+    "typebox": "^1.4.7",
     "typescript": "^5.7.0"
   },
   "pi": {
     "extensions": [
       "./dist/index.js"
     ]
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   }
 }

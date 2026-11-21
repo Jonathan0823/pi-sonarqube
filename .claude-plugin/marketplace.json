@@ -1,0 +1,14 @@
+{
+  "name": "pi-sonarqube",
+  "description": "SonarQube plugins for Claude Code.",
+  "owner": {
+    "name": "Jonathan0823"
+  },
+  "plugins": [
+    {
+      "name": "sonarqube",
+      "source": "./",
+      "description": "SonarQube MCP server and slash commands for Claude Code."
+    }
+  ]
+}

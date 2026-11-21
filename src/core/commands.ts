@@ -1,8 +1,6 @@
 import type {
   AutocompleteItem,
   AutocompleteSuggestions,
-} from "@earendil-works/pi-tui";
-import type {
   SonarIssue,
   SonarIssueFetchOptions,
   SonarDuplicationMeasures,
@@ -424,10 +422,13 @@ async function getAnalyzeCompletions(
   serverUrl: string | undefined,
   token: string | undefined,
   projectKey: string | undefined,
+  configDirName: string | undefined,
 ): Promise<AutocompleteItem[] | null> {
   const [filterItems, aliasItems] = await Promise.all([
     getFilterCompletions(current, mode, cwd, serverUrl, token, projectKey),
-    cwd ? getWorkspaceAliases(cwd, current) : Promise.resolve(null),
+    cwd && configDirName
+      ? getWorkspaceAliases(cwd, configDirName, current)
+      : Promise.resolve(null),
   ]);
   if (!filterItems && !aliasItems) return null;
   const combined: AutocompleteItem[] = [
@@ -439,10 +440,11 @@ async function getAnalyzeCompletions(
 
 async function getWorkspaceAliases(
   cwd: string,
+  configDirName: string,
   current: string,
 ): Promise<AutocompleteItem[] | null> {
   try {
-    const { registry } = await loadWorkspaceRegistry(cwd);
+    const { registry } = await loadWorkspaceRegistry(cwd, configDirName);
     const aliases = knownTargets(registry);
     if (aliases.length === 0) return null;
     return filterAutocompleteItems(
@@ -466,6 +468,7 @@ export async function sonarArgumentCompletions(
   serverUrl?: string,
   token?: string,
   projectKey?: string,
+  configDirName?: string,
 ): Promise<AutocompleteItem[] | null> {
   const { command, current, tokens } = splitSonarArgumentContext(argumentText);
   const lowerCommand = command.toLowerCase();
@@ -497,6 +500,7 @@ export async function sonarArgumentCompletions(
       serverUrl,
       token,
       projectKey,
+      configDirName,
     );
   }
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildDuplicationPreview } from "../dist/ui.js";
+import { buildDuplicationPreview } from "../dist/core/previews.js";
 
 test("buildDuplicationPreview renders exact duplicated lines only", async () => {
   const root = await mkdtemp(join(tmpdir(), "sonar-dup-"));
