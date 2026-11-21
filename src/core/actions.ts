@@ -126,11 +126,7 @@ export async function runSonarAction(
   if (issueKeys?.length && request.action !== "open") {
     throw new Error("issueKeys can only be used with the open action.");
   }
-  if (
-    env.strictTargetPath &&
-    request.action !== "metrics" &&
-    request.action !== "duplications"
-  ) {
+  if (env.strictTargetPath) {
     await assertPathIsProjectRoot(env, request.path);
   }
 
@@ -288,7 +284,9 @@ async function issuesOrOpen(
     );
   }
 
-  env.store.remember(targetState);
+  // Key-based open previews a subset; it must not replace the list that
+  // positional open indexes into.
+  if (!issueKeys?.length) env.store.remember(targetState);
 
   if (request.action === "issues") {
     return { text: formatReport(targetState), details: targetState };
@@ -367,11 +365,15 @@ async function resolveConfigOrSoft(
 }
 
 /** Distinguishes an unreachable server or rejected token from "not analyzed". */
-async function assertServerResponds(config: SonarProjectConfig): Promise<void> {
+async function assertServerResponds(
+  config: SonarProjectConfig,
+  signal?: AbortSignal,
+): Promise<void> {
   try {
     await fetchJson(
       `${config.serverUrl}/api/measures/component?component=${encodeURIComponent(config.projectKey)}&metricKeys=coverage`,
       config.token,
+      signal,
     );
   } catch (error) {
     const message = sonarErrorMessage(error);
@@ -396,7 +398,7 @@ async function metrics(
   if ("text" in config) return config;
   const data = await loadMetricsData(config, env.signal);
   if (!data) {
-    await assertServerResponds(config);
+    await assertServerResponds(config, env.signal);
     return soft(
       `Project "${config.projectKey}" has not been analyzed yet. Run ${commandHint(env, "analyze")} first.`,
       "not_analyzed",

@@ -1,6 +1,8 @@
-import { basename } from "node:path";
+import { basename, relative } from "node:path";
 import {
   ensureDefaultSonarProjectProperties,
+  loadProjectConfig,
+  loadWorkspaceRegistry,
   normalizeServerUrl,
   projectConfigPath,
   resolveInitTarget,
@@ -28,21 +30,31 @@ export async function initProject(
     undefined,
     request.path,
   );
+  const saved = await loadProjectConfig(baseDir, env.configDirName);
   const config: SonarInitConfig = {
-    serverUrl: normalizeServerUrl(request.serverUrl),
-    projectKey: request.projectKey?.trim() || resolveProjectKey(baseDir, {}),
+    serverUrl: normalizeServerUrl(request.serverUrl || saved?.serverUrl),
+    projectKey:
+      request.projectKey?.trim() ||
+      saved?.projectKey ||
+      resolveProjectKey(baseDir, {}),
   };
-  const token = request.token?.trim();
+  const token = request.token?.trim() || saved?.token;
   if (token) config.token = token;
 
   await saveProjectConfig(baseDir, config, env.configDirName);
   await ensureDefaultSonarProjectProperties(baseDir);
-  await saveWorkspaceRegistry(
-    repoRoot,
-    slugify(basename(baseDir)),
-    baseDir,
-    env.configDirName,
-  );
+  const { registry } = await loadWorkspaceRegistry(repoRoot, env.configDirName);
+  const baseAlias = slugify(basename(baseDir));
+  const relBase = relative(repoRoot, baseDir) || ".";
+  let alias = baseAlias;
+  for (
+    let n = 2;
+    registry.workspaces[alias] && registry.workspaces[alias] !== relBase;
+    n++
+  ) {
+    alias = `${baseAlias}-${n}`;
+  }
+  await saveWorkspaceRegistry(repoRoot, alias, baseDir, env.configDirName);
 
   return [
     `SonarQube config saved to ${projectConfigPath(baseDir, env.configDirName)}`,
