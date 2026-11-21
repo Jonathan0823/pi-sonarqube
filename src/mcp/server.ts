@@ -2,6 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
 import { z } from "zod";
 import {
   runSonarAction,
@@ -118,7 +119,10 @@ const exec: CommandRunner = (command, args, options) =>
 
 const states = new Map<string, SonarAnalysisState>();
 
-const server = new McpServer({ name: "sonarqube", version: "0.10.2" });
+const { version } = createRequire(import.meta.url)("../../package.json") as {
+  version: string;
+};
+const server = new McpServer({ name: "sonarqube", version });
 
 server.registerTool(
   "sonarqube",

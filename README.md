@@ -1,14 +1,17 @@
 # pi-sonarqube
 
-A Pi extension to run local SonarQube analysis and browse the resulting issues — all from within Pi.
+Run local SonarQube analysis and browse the resulting issues from within Pi or Claude Code. The package ships a Pi extension and a Claude Code plugin (MCP server plus slash commands).
 
 ## Requirements
 
-- [Pi](https://github.com/earendil-works/pi) installed
+- [Pi](https://github.com/earendil-works/pi) or Claude Code installed
+- Node.js (the Claude Code plugin launches its MCP server via `npx`; Pi packages are not needed for it)
 - A running SonarQube server (e.g. `http://localhost:9000`)
 - `sonar-scanner` available in `$PATH`
 
 ## Install
+
+### Pi
 
 ```bash
 pi install npm:@jonathan0823/pi-sonarqube
@@ -24,7 +27,7 @@ Or add it to your `settings.json`:
 
 Then `/reload` in Pi.
 
-## Claude Code
+### Claude Code
 
 The repo is also a Claude Code plugin marketplace. The plugin starts the MCP server from the published npm package via `npx`, so Node.js and network access to npm are required.
 
@@ -41,7 +44,22 @@ Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-sc
 
 Use `/sonarqube-open [target] <n>` to show the source of issue number `n` from the latest issue list for that target in the current session (run analyze or issues first), or `/sonarqube-open [target] issue:<keys>` for one or more stable issue keys (comma-separated, up to 10). Pass exactly one of index or keys.
 
+### Claude Code commands
+
+| Command                                           | Description                               |
+| ------------------------------------------------- | ----------------------------------------- |
+| `/sonarqube-init [path] [serverUrl] [projectKey]` | Set up project config                     |
+| `/sonarqube-analyze [target] [in:path] [filters]` | Run analysis, show issues and duplication |
+| `/sonarqube-issues [target] [in:path] [filters]`  | List the latest issues                    |
+| `/sonarqube-metrics [target]`                     | Show project metrics (no scanner)         |
+| `/sonarqube-duplications [target] [file number]`  | Browse duplicated files and blocks        |
+| `/sonarqube-open [target] <n>` or `issue:<keys>`  | Show source for an issue                  |
+
+The `sonarqube` MCP tool exposes the same actions (`analyze`, `issues`, `metrics`, `duplications`, `open`) to Claude directly and is always available once the plugin is installed. To test a local build, point `.mcp.json` at `node dist/mcp/server.js`.
+
 ## Quick start
+
+The examples below use Pi syntax (`/sonarqube <action>`). In Claude Code use the matching `/sonarqube-<action>` command listed above.
 
 ### 1. Init project config
 
@@ -124,7 +142,7 @@ Use **Up/Down** to move, **Enter** for block locations and line ranges, and type
 
 Issue keys are stable across filtered queries; numeric positions refer only to the current query result.
 
-## Commands
+## Commands (Pi)
 
 | Command                                   | Description                                                                |
 | ----------------------------------------- | -------------------------------------------------------------------------- |
@@ -138,7 +156,9 @@ Issue keys are stable across filtered queries; numeric positions refer only to t
 
 ## Tool (for the LLM)
 
-The extension also registers a `sonarqube` tool that the LLM can call with actions. It is disabled by default to keep its prompt guidance and schema out of the active tool context. Use `/sonarqube on`, `/sonarqube off`, or `/sonarqube status` to control it. Project setup and help remain available while disabled; run `/sonarqube on` before scanning or querying results. As a rough reference, the tool definition and prompt guidance add about 562 tokens per request when enabled, estimated with OpenAI's `o200k_base` tokenizer; actual `gpt-6-luna` token accounting may differ.
+In Claude Code the `sonarqube` tool is served by the MCP server and is always on; the token-cost note below applies to Pi only.
+
+In Pi, the extension also registers a `sonarqube` tool that the LLM can call with actions. It is disabled by default to keep its prompt guidance and schema out of the active tool context. Use `/sonarqube on`, `/sonarqube off`, or `/sonarqube status` to control it. Project setup and help remain available while disabled; run `/sonarqube on` before scanning or querying results. **Pi only:** as a rough reference, the tool definition and prompt guidance add about 562 tokens per request when enabled, estimated with OpenAI's `o200k_base` tokenizer; actual `gpt-6-luna` token accounting may differ.
 
 - `analyze` — run analysis
 - `issues` — list issues
