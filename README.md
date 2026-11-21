@@ -24,6 +24,17 @@ Or add it to your `settings.json`:
 
 Then `/reload` in Pi.
 
+## Claude Code
+
+The repo is also a Claude Code plugin marketplace. The plugin starts the MCP server from the published npm package via `npx`, so Node.js and network access to npm are required.
+
+```
+/plugin marketplace add Jonathan0823/pi-sonarqube
+/plugin install sonarqube@pi-sonarqube
+```
+
+Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
+
 ## Quick start
 
 ### 1. Init project config

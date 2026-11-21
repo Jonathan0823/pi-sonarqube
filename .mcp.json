@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sonarqube": {
+      "command": "npx",
+      "args": ["-y", "-p", "@jonathan0823/pi-sonarqube", "pi-sonarqube-mcp"]
+    }
+  }
+}

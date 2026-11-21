@@ -1,0 +1,10 @@
+{
+  "name": "sonarqube",
+  "version": "0.10.2",
+  "description": "Run SonarQube analysis and browse issues, metrics and duplications from Claude Code.",
+  "author": {
+    "name": "Jonathan0823"
+  },
+  "repository": "https://github.com/Jonathan0823/pi-sonarqube",
+  "license": "MIT"
+}
