@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type {
   CommandRunner,
   FileDuplication,
@@ -24,7 +25,12 @@ import {
   fetchJson,
   assertFiltersNotAmbiguous,
 } from "./api.js";
-import { resolveConfig } from "./config.js";
+import {
+  loadProjectConfig,
+  looksLikePath,
+  resolveConfig,
+  resolveTarget,
+} from "./config.js";
 import {
   assertIssueSelection,
   formatDuplicationsList,
@@ -110,6 +116,9 @@ export async function runSonarAction(
   if (issueKeys?.length && request.action !== "open") {
     throw new Error("issueKeys can only be used with the open action.");
   }
+  if (request.action !== "metrics" && request.action !== "duplications") {
+    await assertPathIsProjectRoot(env, request.path);
+  }
 
   switch (request.action) {
     case "analyze": {
@@ -123,6 +132,41 @@ export async function runSonarAction(
       return metrics(env, request.path);
     default:
       return issuesOrOpen(env, request, filters, issueKeys);
+  }
+}
+
+async function isProjectRoot(dir: string, configDirName: string) {
+  const hasProperties = await stat(`${dir}/sonar-project.properties`).catch(
+    () => undefined,
+  );
+  return (
+    Boolean(hasProperties) ||
+    Boolean(await loadProjectConfig(dir, configDirName))
+  );
+}
+
+/** `path` selects a project; a source file or subdirectory belongs in `pathScope`. */
+async function assertPathIsProjectRoot(
+  env: SonarCoreEnv,
+  path: string | undefined,
+): Promise<void> {
+  if (!path) return;
+  const misuse = new Error(
+    `"${path}" is a source path, not a SonarQube target. Pass a configured target alias or project root as \`path\` and use \`pathScope\` for files or directories inside it.`,
+  );
+  if (looksLikePath(path)) {
+    const info = await stat(resolve(env.cwd, path)).catch(() => undefined);
+    if (info?.isFile()) throw misuse;
+  }
+  const { baseDir, repoRoot, alias } = await resolveTarget(env, path);
+  if (alias || (await isProjectRoot(baseDir, env.configDirName))) return;
+  for (
+    let dir = dirname(baseDir);
+    dir.startsWith(repoRoot);
+    dir = dirname(dir)
+  ) {
+    if (await isProjectRoot(dir, env.configDirName)) throw misuse;
+    if (dir === repoRoot || dir === dirname(dir)) break;
   }
 }
 

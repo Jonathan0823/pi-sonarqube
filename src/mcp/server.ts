@@ -140,7 +140,11 @@ server.registerTool(
         const text = await initProject(params, env);
         return { content: [{ type: "text" as const, text }] };
       }
-      if (!["metrics", "duplications"].includes(params.action)) {
+      if (
+        !["metrics", "duplications", "analyze", "issues"].includes(
+          params.action,
+        )
+      ) {
         throw new Error(`Action "${params.action}" is not available yet.`);
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
