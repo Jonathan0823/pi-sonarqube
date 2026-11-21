@@ -33,6 +33,8 @@ The repo is also a Claude Code plugin marketplace. The plugin starts the MCP ser
 /plugin install sonarqube@pi-sonarqube
 ```
 
+Run `/sonarqube-init [path] [serverUrl] [projectKey]` once per project (defaults: `http://localhost:9000` and the directory slug). It writes `.claude/sonarqube.json` and registers the target in `.claude/sonarqube.workspaces.json`. The Claude Code adapter reads `.claude` first and falls back to existing `.pi` config. Provide tokens through `SONARQUBE_TOKEN` / `SONAR_TOKEN` in your environment rather than in chat, so they stay out of the transcript.
+
 Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
 
 ## Quick start
@@ -172,7 +174,7 @@ Use project-root paths directly for targets and `in:` / `pathScope` for source s
    - `SONARQUBE_URL` / `SONAR_HOST_URL`
    - `SONARQUBE_TOKEN` / `SONAR_TOKEN`
    - `SONAR_PROJECT_KEY`
-2. **Project config** — `.pi/sonarqube.json` (set via `/sonarqube init`)
+2. **Project config** — `.pi/sonarqube.json` (set via `/sonarqube init`); in Claude Code, `.claude/sonarqube.json` (set via `/sonarqube-init`) with `.pi` as fallback. Prefer environment variables for tokens.
 3. **Scan properties** — `sonar-project.properties`
 4. **Defaults** — `http://localhost:9000`, project key from directory slug
 

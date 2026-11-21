@@ -94,6 +94,14 @@ export async function readOptionalJson<T>(
 
 // ── Config file paths ───────────────────────────────────────────────────────
 
+/**
+ * Directories read for a host's config, in precedence order. Writes always go
+ * to `configDirName` itself; the Claude Code dir falls back to Pi's `.pi`.
+ */
+function readConfigDirs(configDirName: string): string[] {
+  return configDirName === ".claude" ? [".claude", ".pi"] : [configDirName];
+}
+
 export function projectConfigPath(
   baseDir: string,
   configDirName: string,
@@ -230,9 +238,13 @@ export async function loadProjectConfig(
   baseDir: string,
   configDirName: string,
 ): Promise<SonarInitConfig | undefined> {
-  return readOptionalJson<SonarInitConfig>(
-    projectConfigPath(baseDir, configDirName),
-  );
+  for (const dir of readConfigDirs(configDirName)) {
+    const config = await readOptionalJson<SonarInitConfig>(
+      projectConfigPath(baseDir, dir),
+    );
+    if (config) return config;
+  }
+  return undefined;
 }
 
 export async function saveProjectConfig(
@@ -284,13 +296,16 @@ export async function loadWorkspaceRegistry(
   configDirName: string,
 ): Promise<{ repoRoot: string; registry: SonarWorkspaceRegistry }> {
   const repoRoot = await findRepoRoot(startDir);
-  const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(
-    workspaceRegistryPath(repoRoot, configDirName),
-  );
-  const workspaces =
-    raw?.workspaces && typeof raw.workspaces === "object"
-      ? { ...raw.workspaces }
-      : {};
+  const workspaces: Record<string, string> = {};
+  // Read fallbacks first so the primary directory's entries win.
+  for (const dir of readConfigDirs(configDirName).reverse()) {
+    const raw = await readOptionalJson<Partial<SonarWorkspaceRegistry>>(
+      workspaceRegistryPath(repoRoot, dir),
+    );
+    if (raw?.workspaces && typeof raw.workspaces === "object") {
+      Object.assign(workspaces, raw.workspaces);
+    }
+  }
   return { repoRoot, registry: { version: 1, workspaces } };
 }
 
@@ -409,7 +424,8 @@ async function walkForSonarqubeConfigs(
   repoRoot: string,
   configDirName: string,
 ): Promise<DiscoveredTarget[]> {
-  const configDirs: string[] = [];
+  const configDirs = readConfigDirs(configDirName);
+  const targetDirs: string[] = [];
 
   async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 6) return;
@@ -417,7 +433,7 @@ async function walkForSonarqubeConfigs(
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name === "node_modules" || entry.name === ".git") continue;
-        if (entry.name.startsWith(".") && entry.name !== configDirName)
+        if (entry.name.startsWith(".") && !configDirs.includes(entry.name))
           continue;
         const fullPath = resolve(dir, entry.name);
         if (entry.isDirectory()) {
@@ -425,11 +441,14 @@ async function walkForSonarqubeConfigs(
         }
       }
       // Check if this dir has <configDir>/sonarqube.json
-      try {
-        await stat(resolve(dir, configDirName, "sonarqube.json"));
-        if (dir !== repoRoot) configDirs.push(dir);
-      } catch {
-        // no config here
+      for (const name of configDirs) {
+        const found = await stat(resolve(dir, name, "sonarqube.json")).catch(
+          () => undefined,
+        );
+        if (found) {
+          if (dir !== repoRoot) targetDirs.push(dir);
+          break;
+        }
       }
     } catch {
       // skip unreadable dirs
@@ -440,7 +459,7 @@ async function walkForSonarqubeConfigs(
 
   const seen = new Set<string>();
   const targets: DiscoveredTarget[] = [];
-  for (const dir of configDirs) {
+  for (const dir of targetDirs) {
     const key = relative(repoRoot, dir);
     if (seen.has(key)) continue;
     seen.add(key);
