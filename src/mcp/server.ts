@@ -101,7 +101,7 @@ server.registerTool(
       },
     };
     try {
-      if (params.action !== "metrics") {
+      if (!["metrics", "analyze", "issues"].includes(params.action)) {
         throw new Error(`Action "${params.action}" is not available yet.`);
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
