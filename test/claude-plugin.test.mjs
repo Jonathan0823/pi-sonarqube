@@ -40,6 +40,18 @@ test("/sonarqube-metrics command calls the metrics action with the target", asyn
   assert.match(md, /\$ARGUMENTS/);
 });
 
+test("/sonarqube-duplications command takes a target and file number", async () => {
+  const md = await readFile(
+    new URL("../commands/sonarqube-duplications.md", import.meta.url),
+    "utf8",
+  );
+  assert.match(md, /argument-hint: \[target\] \[file number\]/);
+  assert.match(md, /allowed-tools: mcp__plugin_sonarqube_sonarqube__sonarqube/);
+  assert.match(md, /"duplications"/);
+  assert.match(md, /fileIndex/);
+  assert.match(md, /\$ARGUMENTS/);
+});
+
 test("README documents Claude Code install", async () => {
   const readme = await readFile(
     new URL("../README.md", import.meta.url),

@@ -33,7 +33,7 @@ The repo is also a Claude Code plugin marketplace. The plugin starts the MCP ser
 /plugin install sonarqube@pi-sonarqube
 ```
 
-Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
+Use `/sonarqube-duplications [target] [file number]` to list duplicated files, or pass a file number to see that file's duplicated blocks and line ranges. Then run `/sonarqube-metrics [target]` (target is a configured alias or project root; omit for the current directory). Set `SONAR_HOST_URL` and credentials as for the Pi extension.
 
 Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-scanner`, waits for the SonarQube task, and reports issues and duplication; `/sonarqube-issues [target] [in:path] [filters]` lists the latest issues. Filters are `type:`, `severity:`, `status:`, `rule:` (legacy) or `quality:`, `impactSeverity:` (MQR); mixing the two families is an error. `path` must be a target alias or project root, never a source path; use `in:` to scope inside it.
 
