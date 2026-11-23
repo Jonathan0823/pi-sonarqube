@@ -129,8 +129,13 @@ test("duplication list and previews use cwd-relative paths", async () => {
     );
     assert.match(list.text, /apps\/web\/src\/a\.ts/);
     assert.equal(list.details.files[0].filePath, "src/a.ts");
-    for (const request of [
+    const dflt = await runSonarAction(
       { action: "duplications", path: "apps/web" },
+      env(cwd),
+    );
+    assert.match(dflt.text, /apps\/web\/src\/a\.ts/);
+    assert.doesNotMatch(dflt.text, /\|/);
+    for (const request of [
       { action: "duplications", path: "apps/web", fileIndex: 1 },
     ]) {
       const r = await runSonarAction(request, env(cwd));

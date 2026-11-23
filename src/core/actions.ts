@@ -450,8 +450,6 @@ async function duplications(
 ): Promise<SonarActionResult> {
   const config = await resolveConfigOrSoft(env, request.path);
   if ("text" in config) return config;
-  const interactive =
-    request.view === "list" || request.fileIndex !== undefined;
   let files: FileDuplication[];
   try {
     files = await fetchFileDuplications(
@@ -459,8 +457,7 @@ async function duplications(
       config.token,
       config.projectKey,
       env.signal,
-      // Only the interactive views honor pathScope; the summary does not.
-      interactive ? request.pathScope : undefined,
+      request.pathScope,
       config.baseDir,
     );
   } catch (error) {
@@ -481,7 +478,7 @@ async function duplications(
     );
   }
 
-  if (request.view === "list") {
+  if (request.fileIndex === undefined) {
     return {
       text: formatDuplicationsList(
         files.map((f) => ({
@@ -493,7 +490,7 @@ async function duplications(
     };
   }
 
-  if (request.fileIndex !== undefined) {
+  {
     const file = files[request.fileIndex - 1];
     if (!file) {
       return soft(`File #${request.fileIndex} not found.`, "file_not_found");
@@ -516,57 +513,4 @@ async function duplications(
       details: { projectKey: config.projectKey, filePath: file.filePath },
     };
   }
-
-  const display = (p: string) => agentPath(env.cwd, config.baseDir, p);
-  const topFiles = files.slice(0, 5);
-  const topContexts = await Promise.all(
-    topFiles.map(async (file) => {
-      const summary = {
-        filePath: file.filePath,
-        duplicatedBlocks: file.duplicatedBlocks,
-        duplicatedLines: file.duplicatedLines,
-        duplicatedLinesDensity: file.duplicatedLinesDensity,
-      };
-      try {
-        const groups = await fetchFileDuplicationBlocks(
-          config.serverUrl,
-          config.token,
-          file.fileKey,
-          config.projectKey,
-          env.signal,
-        );
-        const preview = await buildDuplicationPreview(
-          config.baseDir,
-          file.filePath,
-          groups,
-          display,
-        );
-        return { ...summary, preview };
-      } catch (error) {
-        return {
-          ...summary,
-          preview: `Duplications in ${display(file.filePath)}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
-        };
-      }
-    }),
-  );
-  const remaining = files.length - topContexts.length;
-  const blocks = [
-    `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.`,
-    ...topContexts.map(
-      (item, index) =>
-        `#${index + 1} ${display(item.filePath)}  dup%=${item.duplicatedLinesDensity.toFixed(1)}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
-    ),
-    ...(remaining > 0 ? [`+ ${remaining} more file(s) not shown`] : []),
-  ];
-  return {
-    text: blocks.join("\n"),
-    blocks,
-    details: {
-      projectKey: config.projectKey,
-      totalFiles: files.length,
-      topFiles: topContexts,
-      moreFiles: remaining,
-    },
-  };
 }

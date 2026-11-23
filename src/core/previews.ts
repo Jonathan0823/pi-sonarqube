@@ -74,20 +74,28 @@ export async function buildDuplicationPreview(
   const rendered: string[] = [`Duplications in ${display(filePath)}`];
   for (const [groupIndex, group] of groups.entries()) {
     rendered.push("", `Block ${groupIndex + 1}:`);
-    for (const block of group.blocks) {
+    const range = (block: DuplicationBlockGroup["blocks"][number]) =>
+      `${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`;
+    let shown = -1;
+    for (const [i, block] of group.blocks.entries()) {
       try {
-        const lines = await loadLines(block.filePath); // NOSONAR: preserve block order and reuse cached reads.
-        const end = block.from + block.size - 1;
-        rendered.push(`  ${display(block.filePath)}:${block.from}-${end}`);
+        const lines = await loadLines(block.filePath); // NOSONAR: first readable copy wins.
+        rendered.push(`  ${range(block)}`);
         for (const line of renderRange(lines, block.from, block.size)) {
           rendered.push(`  ${line}`);
         }
+        shown = i;
+        break;
       } catch {
-        rendered.push(
-          `  ${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`,
-          "  <unable to read duplicated lines>",
-        );
+        // try the next copy
       }
+    }
+    if (shown === -1 && group.blocks.length > 0) {
+      rendered.push("  <unable to read duplicated lines>");
+    }
+    const others = group.blocks.filter((_, i) => i !== shown);
+    if (others.length > 0) {
+      rendered.push(`  also: ${others.map(range).join(", ")}`);
     }
   }
   return rendered.join("\n");
