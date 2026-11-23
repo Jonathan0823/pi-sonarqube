@@ -784,46 +784,48 @@ export function formatSummary(state: {
   return `SonarQube: ${issueCount} issue${plural} found for ${state.projectKey}${filterLabel}`;
 }
 
+function formatCompactIssue(issue: SonarIssue): string {
+  const line = issue.line ? ` :${issue.line}` : "";
+  return `  ${issue.key} ${issue.severity}${line} ${issue.rule} ${issue.message}`;
+}
+
 export function formatReport(state: {
   projectKey: string;
-  serverUrl: string;
-  baseDir: string;
   totalIssues: number;
   filters?: SonarIssueFetchOptions;
   measures?: SonarDuplicationMeasures;
   issues: SonarIssue[];
 }): string {
-  const lines = [
-    `Project: ${state.projectKey}`,
-    `Server: ${state.serverUrl}`,
-    `Base dir: ${state.baseDir}`,
-    `Issues: ${state.totalIssues}`,
-  ];
-
-  if (state.filters) {
-    lines.push(`Filters: ${issueFilterLabel(state.filters)}`);
-  }
+  const shown = state.issues.slice(0, 10);
+  const filter = state.filters ? issueFilterLabel(state.filters) : "";
+  const filterPart = filter ? ` [${filter}]` : "";
+  const plural = state.totalIssues === 1 ? "" : "s";
+  const header =
+    state.totalIssues === 0
+      ? `${state.projectKey}: no issues${filterPart}`
+      : `${state.projectKey}: ${state.totalIssues} issue${plural} (showing 1-${shown.length})${filterPart}`;
+  const lines = [header];
 
   if (state.measures && state.issues.length > 0) {
     lines.push(
-      "",
       state.measures.duplicatedBlocks > 0
         ? `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
         : `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  (no duplications detected)`,
     );
   }
 
-  if (state.issues.length === 0) {
-    if (!state.measures) lines.push("No open issues found.");
-    return lines.join("\n");
+  const byFile = new Map<string, SonarIssue[]>();
+  for (const issue of shown) {
+    const list = byFile.get(issue.filePath) ?? [];
+    list.push(issue);
+    byFile.set(issue.filePath, list);
   }
-
-  lines.push("");
-  for (const [i, issue] of state.issues.slice(0, 10).entries()) {
-    lines.push(formatIssue(issue, i + 1));
+  for (const [file, list] of byFile) {
+    lines.push(file);
+    for (const issue of list) lines.push(formatCompactIssue(issue));
   }
-  if (state.issues.length > 10) {
-    lines.push(`... ${state.issues.length - 10} more`);
+  if (state.issues.length > shown.length) {
+    lines.push(`... ${state.issues.length - shown.length} more`);
   }
   return lines.join("\n");
 }
