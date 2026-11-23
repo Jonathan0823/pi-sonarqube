@@ -44,6 +44,7 @@ export async function buildDuplicationPreview(
   baseDir: string,
   filePath: string,
   groups: DuplicationBlockGroup[],
+  display: (path: string) => string = (path) => path,
 ): Promise<string> {
   const cache = new Map<string, string>();
   const loadLines = async (relativePath: string): Promise<string[]> => {
@@ -70,20 +71,20 @@ export async function buildDuplicationPreview(
     return rendered;
   };
 
-  const rendered: string[] = [`Duplications in ${filePath}`];
+  const rendered: string[] = [`Duplications in ${display(filePath)}`];
   for (const [groupIndex, group] of groups.entries()) {
     rendered.push("", `Block ${groupIndex + 1}:`);
     for (const block of group.blocks) {
       try {
         const lines = await loadLines(block.filePath); // NOSONAR: preserve block order and reuse cached reads.
         const end = block.from + block.size - 1;
-        rendered.push(`  ${block.filePath}:${block.from}-${end}`);
+        rendered.push(`  ${display(block.filePath)}:${block.from}-${end}`);
         for (const line of renderRange(lines, block.from, block.size)) {
           rendered.push(`  ${line}`);
         }
       } catch {
         rendered.push(
-          `  ${block.filePath}:${block.from}-${block.from + block.size - 1}`,
+          `  ${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`,
           "  <unable to read duplicated lines>",
         );
       }
