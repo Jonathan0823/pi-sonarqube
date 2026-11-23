@@ -134,7 +134,7 @@ export async function runSonarAction(
     case "analyze": {
       const state = await analyzeProject(env, request.path, filters);
       env.store.remember(state);
-      return { text: formatReport(state), details: state };
+      return { text: reportText(env, state), details: state };
     }
     case "duplications":
       return duplications(env, request);
@@ -143,6 +143,27 @@ export async function runSonarAction(
     default:
       return issuesOrOpen(env, request, filters, issueKeys);
   }
+}
+
+/** Path an agent can open from `cwd`; absolute when baseDir is outside it. */
+export function agentPath(cwd: string, baseDir: string, path: string): string {
+  const absolute = resolve(baseDir, path);
+  const rel = relative(cwd, absolute);
+  if (rel === "") return ".";
+  if (isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) {
+    return absolute;
+  }
+  return rel.split(sep).join("/");
+}
+
+function reportText(env: SonarCoreEnv, state: SonarAnalysisState): string {
+  return formatReport({
+    ...state,
+    issues: state.issues.map((issue) => ({
+      ...issue,
+      filePath: agentPath(env.cwd, state.baseDir, issue.filePath),
+    })),
+  });
 }
 
 function commandHint(env: SonarCoreEnv, command: string): string {
@@ -289,7 +310,7 @@ async function issuesOrOpen(
   if (!issueKeys?.length) env.store.remember(targetState);
 
   if (request.action === "issues") {
-    return { text: formatReport(targetState), details: targetState };
+    return { text: reportText(env, targetState), details: targetState };
   }
 
   if (issueKeys?.length) {
@@ -462,7 +483,12 @@ async function duplications(
 
   if (request.view === "list") {
     return {
-      text: formatDuplicationsList(files),
+      text: formatDuplicationsList(
+        files.map((f) => ({
+          ...f,
+          filePath: agentPath(env.cwd, config.baseDir, f.filePath),
+        })),
+      ),
       details: { projectKey: config.projectKey, files },
     };
   }
@@ -483,6 +509,7 @@ async function duplications(
       config.baseDir,
       file.filePath,
       groups,
+      (p) => agentPath(env.cwd, config.baseDir, p),
     );
     return {
       text,
@@ -490,6 +517,7 @@ async function duplications(
     };
   }
 
+  const display = (p: string) => agentPath(env.cwd, config.baseDir, p);
   const topFiles = files.slice(0, 5);
   const topContexts = await Promise.all(
     topFiles.map(async (file) => {
@@ -511,12 +539,13 @@ async function duplications(
           config.baseDir,
           file.filePath,
           groups,
+          display,
         );
         return { ...summary, preview };
       } catch (error) {
         return {
           ...summary,
-          preview: `Duplications in ${file.filePath}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
+          preview: `Duplications in ${display(file.filePath)}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
         };
       }
     }),
@@ -526,7 +555,7 @@ async function duplications(
     `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.`,
     ...topContexts.map(
       (item, index) =>
-        `#${index + 1} ${item.filePath}  dup%=${item.duplicatedLinesDensity.toFixed(1)}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
+        `#${index + 1} ${display(item.filePath)}  dup%=${item.duplicatedLinesDensity.toFixed(1)}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
     ),
     ...(remaining > 0 ? [`+ ${remaining} more file(s) not shown`] : []),
   ];
