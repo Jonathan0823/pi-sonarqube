@@ -245,7 +245,8 @@ test("duplications fileIndex drills into block locations and line ranges", async
         assert.match(text, /Duplications in src\/a\.js/);
         assert.match(text, /src\/a\.js:1-3/);
         assert.match(text, /src\/b\.js:10-12/);
-        assert.match(text, /line11/);
+        assert.match(text, /two/);
+        assert.doesNotMatch(text, /line11/);
       },
       sources,
     ),
