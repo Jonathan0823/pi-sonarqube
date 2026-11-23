@@ -123,8 +123,14 @@ export async function runSonarAction(
   assertFiltersNotAmbiguous(filters);
   const issueKeys = normalizeIssueList(request.issueKeys);
   assertIssueSelection(request.issueIndex, issueKeys);
-  if (issueKeys?.length && request.action !== "open") {
-    throw new Error("issueKeys can only be used with the open action.");
+  if (
+    issueKeys?.length &&
+    request.action !== "open" &&
+    request.action !== "issues"
+  ) {
+    throw new Error(
+      "issueKeys can only be used with the issues and open actions.",
+    );
   }
   if (env.strictTargetPath) {
     await assertPathIsProjectRoot(env, request.path);

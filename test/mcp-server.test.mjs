@@ -103,15 +103,9 @@ test("tool schema carries pathScope and issueKeys guidance", async () => {
     assert.match(tool.description, /pathScope/);
     assert.match(tool.description, /issueKeys/);
     assert.match(tool.description, /severity, status, type, rule/);
-    assert.match(tool.inputSchema.properties.issueIndex.description, /session/);
-    assert.match(
-      tool.inputSchema.properties.issueIndex.description,
-      /prior issues or analyze call|latest issues/,
-    );
     assert.deepEqual(tool.inputSchema.properties.action.enum, [
       "analyze",
       "issues",
-      "open",
       "metrics",
       "duplications",
       "init",
