@@ -85,6 +85,21 @@ const SonarToolParams = Type.Object({
       maxItems: 10,
     }),
   ),
+  limit: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 100,
+      description:
+        "issues/analyze: maximum issues to show (default 10, max 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
+    }),
+  ),
+  offset: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "issues/analyze: 0-based number of issues to skip, for paging through a long list (default 0).",
+    }),
+  ),
   severities: Type.Optional(
     Type.Array(
       Type.String({ description: "Issue severity to fetch (e.g. CRITICAL)" }),

@@ -38,6 +38,7 @@ import {
   formatIssue,
   formatMetricsOutput,
   formatReport,
+  normalizePaging,
   sonarErrorMessage,
 } from "./commands.js";
 import {
@@ -53,6 +54,10 @@ export interface SonarActionRequest extends SonarIssueFetchOptions {
   /** Configured target alias or project root directory. */
   path?: string;
   issueIndex?: number;
+  /** issues/analyze: page size (default 10, max 100). */
+  limit?: number;
+  /** issues/analyze: 0-based index of the first issue shown. */
+  offset?: number;
   /** duplications: return the preview of the Nth duplicated file (1-based). */
   fileIndex?: number;
   /** duplications: return the list of duplicated files instead of previews. */
@@ -123,6 +128,7 @@ export async function runSonarAction(
   assertFiltersNotAmbiguous(filters);
   const issueKeys = normalizeIssueList(request.issueKeys);
   assertIssueSelection(request.issueIndex, issueKeys);
+  normalizePaging(request.limit, request.offset);
   if (issueKeys?.length && request.action !== "open") {
     throw new Error("issueKeys can only be used with the open action.");
   }
@@ -134,7 +140,7 @@ export async function runSonarAction(
     case "analyze": {
       const state = await analyzeProject(env, request.path, filters);
       env.store.remember(state);
-      return { text: reportText(env, state), details: state };
+      return { text: reportText(env, state, request), details: state };
     }
     case "duplications":
       return duplications(env, request);
@@ -156,14 +162,21 @@ export function agentPath(cwd: string, baseDir: string, path: string): string {
   return rel.split(sep).join("/");
 }
 
-function reportText(env: SonarCoreEnv, state: SonarAnalysisState): string {
-  return formatReport({
-    ...state,
-    issues: state.issues.map((issue) => ({
-      ...issue,
-      filePath: agentPath(env.cwd, state.baseDir, issue.filePath),
-    })),
-  });
+function reportText(
+  env: SonarCoreEnv,
+  state: SonarAnalysisState,
+  paging: { limit?: number; offset?: number },
+): string {
+  return formatReport(
+    {
+      ...state,
+      issues: state.issues.map((issue) => ({
+        ...issue,
+        filePath: agentPath(env.cwd, state.baseDir, issue.filePath),
+      })),
+    },
+    paging,
+  );
 }
 
 function commandHint(env: SonarCoreEnv, command: string): string {
@@ -310,7 +323,10 @@ async function issuesOrOpen(
   if (!issueKeys?.length) env.store.remember(targetState);
 
   if (request.action === "issues") {
-    return { text: reportText(env, targetState), details: targetState };
+    return {
+      text: reportText(env, targetState, request),
+      details: targetState,
+    };
   }
 
   if (issueKeys?.length) {
