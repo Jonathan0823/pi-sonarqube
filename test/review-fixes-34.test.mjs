@@ -114,7 +114,7 @@ test("Pi positional open selects the nth issue and reports a missing one", async
   });
 });
 
-test("Pi schema accepts open so the guiding error is reachable; paging is uncapped in schema", async () => {
+test("Pi schema omits open/issueIndex, guides legacy calls, exposes fileIndex; paging is uncapped", async () => {
   let tool;
   sonarqube({
     on() {},
@@ -124,18 +124,23 @@ test("Pi schema accepts open so the guiding error is reachable; paging is uncapp
     },
   });
   const props = tool.parameters.properties;
-  assert.ok(props.action.enum.includes("open"));
-  assert.ok(props.issueIndex);
+  assert.ok(!props.action.enum.includes("open"));
+  assert.equal(props.issueIndex, undefined);
+  assert.equal(props.fileIndex.type, "integer");
   assert.equal(props.limit.maximum, undefined);
   assert.match(props.limit.description, /clamp|max 100/);
-  const result = await tool.execute(
-    "c",
-    { action: "open", issueIndex: 1 },
-    undefined,
-    undefined,
-    { cwd: process.cwd() },
+  // prepareArguments runs before schema validation in Pi, so legacy calls
+  // get the guiding error rather than a generic validation failure.
+  assert.throws(
+    () => tool.prepareArguments({ action: "open" }),
+    /not available to agents/,
   );
-  assert.match(result.content[0].text, /not available to agents/);
+  assert.throws(
+    () => tool.prepareArguments({ action: "issues", issueIndex: 1 }),
+    /not available to agents/,
+  );
+  const ok = { action: "duplications", fileIndex: 2 };
+  assert.equal(tool.prepareArguments(ok), ok);
 });
 
 test("MCP schema does not cap limit (core clamps)", async () => {

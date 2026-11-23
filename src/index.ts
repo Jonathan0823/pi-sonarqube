@@ -8,7 +8,7 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { basename } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import type {
   SonarIssue,
   SonarAnalysisState,
@@ -60,23 +60,11 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  // "open" is accepted by the schema only so execute() can reject it with a guiding error.
-  action: StringEnum([
-    "analyze",
-    "issues",
-    "metrics",
-    "duplications",
-    "open",
-  ] as const),
+  action: StringEnum(["analyze", "issues", "metrics", "duplications"] as const),
   path: Type.Optional(
     Type.String({
       description:
         "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
-    }),
-  ),
-  issueIndex: Type.Optional(
-    Type.Number({
-      description: "Removed; rejected with a guiding error. Use issueKeys.",
     }),
   ),
   issueKeys: Type.Optional(
@@ -132,6 +120,13 @@ const SonarToolParams = Type.Object({
     Type.String({
       description:
         "File or directory inside the selected SonarQube project, relative to its project root (e.g. src/api.ts or src/). Filters issues only; use path to select the project.",
+    }),
+  ),
+  fileIndex: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "duplications: 1-based file number from the list; returns that file's duplicated blocks and line ranges.",
     }),
   ),
 });
@@ -577,9 +572,21 @@ export default function sonarqube(pi: ExtensionAPI) {
     ],
     parameters: SonarToolParams,
 
+    // Runs before schema validation, so removed legacy fields get a guiding
+    // error instead of a generic enum/unknown-property failure.
+    prepareArguments(args) {
+      const input = (args ?? {}) as { action?: unknown; issueIndex?: unknown };
+      if (input.action === "open" || input.issueIndex !== undefined) {
+        throw new Error(OPEN_REMOVED_MESSAGE);
+      }
+      return args as Static<typeof SonarToolParams>;
+    },
+
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
-        if (params.action === "open" || params.issueIndex !== undefined) {
+        // Defense in depth for callers that skip prepareArguments.
+        const legacy = params as { action: string; issueIndex?: unknown };
+        if (legacy.action === "open" || legacy.issueIndex !== undefined) {
           throw new Error(OPEN_REMOVED_MESSAGE);
         }
         const result = await runSonarAction(
