@@ -15,26 +15,24 @@ import type { CommandRunner, SonarAnalysisState } from "../core/types.js";
 
 const DESCRIPTION = [
   "Run local SonarQube analysis and inspect the latest issues.",
-  "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
+  "Use sonarqube when the user asks to run a local SonarQube scan or inspect issues.",
   "The `path` parameter selects a configured target alias or SonarQube project root. Never pass a source file or subdirectory as `path`.",
   "Use `pathScope` for a file or directory inside that project. Example: path: 'apps/web', pathScope: 'src/components/'.",
   "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
   "Use action 'init' once per project to write .claude/sonarqube.json; it takes optional path, serverUrl, projectKey and token. Prefer the SONARQUBE_TOKEN or SONAR_TOKEN environment variable over passing token.",
-  "Prefer stable `issueKeys` over positional `issueIndex` when opening issue source. Multiple keys can be opened in one call.",
+  "Flow: list issues, page or filter (use `issueKeys` to fetch specific issues), then read the files at the reported file:line locations with your own file tools.",
 ].join("\n");
+
+const OPEN_REMOVED =
+  "The open action and issueIndex are not available to agents. Call `issues` with `issueKeys` (or filters), then read the file at the reported file:line location.";
 
 const list = (description: string) =>
   z.array(z.string()).optional().describe(description);
 
 const inputSchema = {
-  action: z.enum([
-    "analyze",
-    "issues",
-    "open",
-    "metrics",
-    "duplications",
-    "init",
-  ]),
+  action: z.enum(["analyze", "issues", "metrics", "duplications", "init"], {
+    error: (issue) => (issue.input === "open" ? OPEN_REMOVED : undefined),
+  }),
   serverUrl: z
     .string()
     .optional()
@@ -55,18 +53,12 @@ const inputSchema = {
     .describe(
       "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
     ),
-  issueIndex: z
-    .number()
-    .optional()
-    .describe(
-      "Legacy 1-based position in the session's latest issues list from a prior issues or analyze call (not this call's filters). Prefer issueKeys for stable opening.",
-    ),
   issueKeys: z
     .array(z.string().describe("Stable SonarQube issue key"))
     .min(1)
     .max(10)
     .optional()
-    .describe("One to 10 stable issue keys to open in one batch"),
+    .describe("issues: filter to one to 10 stable issue keys"),
   limit: z
     .number()
     .int()
@@ -142,9 +134,15 @@ const { version } = createRequire(import.meta.url)("../../package.json") as {
 };
 const server = new McpServer({ name: "sonarqube", version });
 
+const inputObject = z.looseObject(inputSchema).superRefine((value, ctx) => {
+  if ("issueIndex" in value) {
+    ctx.addIssue({ code: "custom", message: OPEN_REMOVED });
+  }
+});
+
 server.registerTool(
   "sonarqube",
-  { description: DESCRIPTION, inputSchema },
+  { description: DESCRIPTION, inputSchema: inputObject },
   async (params, extra) => {
     const env: SonarCoreEnv = {
       cwd: process.cwd(),
@@ -168,15 +166,6 @@ server.registerTool(
       if (params.action === "init") {
         const text = await initProject(params, env);
         return { content: [{ type: "text" as const, text }] };
-      }
-      if (
-        params.action === "open" &&
-        params.issueIndex === undefined &&
-        !params.issueKeys?.some((key) => key.trim())
-      ) {
-        throw new Error(
-          "The open action requires either issueIndex or issueKeys.",
-        );
       }
       const result = await runSonarAction(params as SonarActionRequest, env);
       return {

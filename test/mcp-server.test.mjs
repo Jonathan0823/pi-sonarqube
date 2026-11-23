@@ -103,15 +103,9 @@ test("tool schema carries pathScope and issueKeys guidance", async () => {
     assert.match(tool.description, /pathScope/);
     assert.match(tool.description, /issueKeys/);
     assert.match(tool.description, /severity, status, type, rule/);
-    assert.match(tool.inputSchema.properties.issueIndex.description, /session/);
-    assert.match(
-      tool.inputSchema.properties.issueIndex.description,
-      /prior issues or analyze call|latest issues/,
-    );
     assert.deepEqual(tool.inputSchema.properties.action.enum, [
       "analyze",
       "issues",
-      "open",
       "metrics",
       "duplications",
       "init",
@@ -245,7 +239,8 @@ test("duplications fileIndex drills into block locations and line ranges", async
         assert.match(text, /Duplications in src\/a\.js/);
         assert.match(text, /src\/a\.js:1-3/);
         assert.match(text, /src\/b\.js:10-12/);
-        assert.match(text, /line11/);
+        assert.match(text, /two/);
+        assert.doesNotMatch(text, /line11/);
       },
       sources,
     ),

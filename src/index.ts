@@ -59,28 +59,16 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum([
-    "analyze",
-    "issues",
-    "open",
-    "metrics",
-    "duplications",
-  ] as const),
+  action: StringEnum(["analyze", "issues", "metrics", "duplications"] as const),
   path: Type.Optional(
     Type.String({
       description:
         "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
     }),
   ),
-  issueIndex: Type.Optional(
-    Type.Number({
-      description:
-        "Legacy 1-based issue position in this call's query results. Prefer issueKeys for stable opening.",
-    }),
-  ),
   issueKeys: Type.Optional(
     Type.Array(Type.String({ description: "Stable SonarQube issue key" }), {
-      description: "One to 10 stable issue keys to open in one batch",
+      description: "issues: filter to one to 10 stable issue keys",
       minItems: 1,
       maxItems: 10,
     }),
@@ -569,16 +557,22 @@ export default function sonarqube(pi: ExtensionAPI) {
     description: "Run local SonarQube analysis and inspect the latest issues.",
     promptSnippet: "Run local SonarQube analysis or inspect issue results",
     promptGuidelines: [
-      "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
+      "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues.",
       "The `path` parameter selects a configured target alias or SonarQube project root. Never pass a source file or subdirectory as `path`.",
       "Use `pathScope` for a file or directory inside that project. Example: path: 'apps/web', pathScope: 'src/components/'.",
       "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
-      "Prefer stable `issueKeys` over positional `issueIndex` when opening issue source. Multiple keys can be opened in one call.",
+      "Flow: list issues, page or filter (use `issueKeys` to fetch specific issues), then read the files at the reported file:line locations.",
     ],
     parameters: SonarToolParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
+        const raw = params as Record<string, unknown>;
+        if (raw.action === "open" || raw.issueIndex !== undefined) {
+          throw new Error(
+            "The open action and issueIndex are not available to agents. Call `issues` with `issueKeys` (or filters), then read the file at the reported file:line location.",
+          );
+        }
         const result = await runSonarAction(
           params as SonarActionRequest,
           coreEnv(ctx),
