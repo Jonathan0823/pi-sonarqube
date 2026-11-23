@@ -123,8 +123,8 @@ test("issues without a prior analysis reports a soft result, bad input throws", 
       /offline/,
     );
     await assert.rejects(
-      runSonarAction({ action: "issues", issueKeys: ["a"] }, env),
-      /only be used with the open action/,
+      runSonarAction({ action: "metrics", issueKeys: ["a"] }, env),
+      /only be used with the issues and open actions/,
     );
   } finally {
     globalThis.fetch = originalFetch;

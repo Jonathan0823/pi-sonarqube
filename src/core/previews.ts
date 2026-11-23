@@ -44,6 +44,7 @@ export async function buildDuplicationPreview(
   baseDir: string,
   filePath: string,
   groups: DuplicationBlockGroup[],
+  display: (path: string) => string = (path) => path,
 ): Promise<string> {
   const cache = new Map<string, string>();
   const loadLines = async (relativePath: string): Promise<string[]> => {
@@ -70,23 +71,35 @@ export async function buildDuplicationPreview(
     return rendered;
   };
 
-  const rendered: string[] = [`Duplications in ${filePath}`];
+  const rendered: string[] = [`Duplications in ${display(filePath)}`];
+  type Block = DuplicationBlockGroup["blocks"][number];
+  const range = (block: Block) =>
+    `${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`;
+  /** First copy whose source can be read, with its rendered lines. */
+  const firstReadableBlock = async (blocks: Block[]) => {
+    for (const [index, block] of blocks.entries()) {
+      try {
+        const lines = await loadLines(block.filePath); // NOSONAR: first readable copy wins.
+        return { index, lines: renderRange(lines, block.from, block.size) };
+      } catch {
+        // try the next copy
+      }
+    }
+    return undefined;
+  };
+
   for (const [groupIndex, group] of groups.entries()) {
     rendered.push("", `Block ${groupIndex + 1}:`);
-    for (const block of group.blocks) {
-      try {
-        const lines = await loadLines(block.filePath); // NOSONAR: preserve block order and reuse cached reads.
-        const end = block.from + block.size - 1;
-        rendered.push(`  ${block.filePath}:${block.from}-${end}`);
-        for (const line of renderRange(lines, block.from, block.size)) {
-          rendered.push(`  ${line}`);
-        }
-      } catch {
-        rendered.push(
-          `  ${block.filePath}:${block.from}-${block.from + block.size - 1}`,
-          "  <unable to read duplicated lines>",
-        );
-      }
+    const readable = await firstReadableBlock(group.blocks); // NOSONAR: groups render in order.
+    if (readable) {
+      rendered.push(`  ${range(group.blocks[readable.index])}`);
+      for (const line of readable.lines) rendered.push(`  ${line}`);
+    } else if (group.blocks.length > 0) {
+      rendered.push("  <unable to read duplicated lines>");
+    }
+    const others = group.blocks.filter((_, i) => i !== readable?.index);
+    if (others.length > 0) {
+      rendered.push(`  also: ${others.map(range).join(", ")}`);
     }
   }
   return rendered.join("\n");

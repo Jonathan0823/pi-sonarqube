@@ -42,7 +42,7 @@ Use `/sonarqube-duplications [target] [file number]` to list duplicated files, o
 
 Also available: `/sonarqube-analyze [target] [in:path] [filters]` runs `sonar-scanner`, waits for the SonarQube task, and reports issues and duplication; `/sonarqube-issues [target] [in:path] [filters]` lists the latest issues. Filters are `type:`, `severity:` (legacy), `status:`, `rule:` (either family), and `quality:`, `impactSeverity:` (MQR); `type:` and `severity:` cannot be combined with `quality:` or `impactSeverity:`. `path` must be a target alias or project root, never a source path; use `in:` to scope inside it.
 
-Use `/sonarqube-open [target] <n>` to show the source of issue number `n` from the latest issue list for that target in the current session (run analyze or issues first), or `/sonarqube-open [target] issue:<keys>` for one or more stable issue keys (comma-separated, up to 10). Pass exactly one of index or keys.
+Use `/sonarqube-open [target] <n>` or `/sonarqube-open [target] issue:<keys>` to look at issues and fix them. The agent lists issues (using `issueKeys` for stable keys, up to 10, comma-separated), then reads the source at each reported `file:line` with its own file tools. The MCP tool has no `open` action.
 
 ### Claude Code commands
 
@@ -53,9 +53,9 @@ Use `/sonarqube-open [target] <n>` to show the source of issue number `n` from t
 | `/sonarqube-issues [target] [in:path] [filters]`  | List the latest issues                    |
 | `/sonarqube-metrics [target]`                     | Show project metrics (no scanner)         |
 | `/sonarqube-duplications [target] [file number]`  | Browse duplicated files and blocks        |
-| `/sonarqube-open [target] <n>` or `issue:<keys>`  | Show source for an issue                  |
+| `/sonarqube-open [target] <n>` or `issue:<keys>`  | Look at and fix issues                    |
 
-The `sonarqube` MCP tool exposes the same actions (`analyze`, `issues`, `metrics`, `duplications`, `open`) to Claude directly and is always available once the plugin is installed. To test a local build, point `.mcp.json` at `node dist/mcp/server.js`.
+The `sonarqube` MCP tool exposes the same actions (`analyze`, `issues`, `metrics`, `duplications`) to Claude directly and is always available once the plugin is installed. To test a local build, point `.mcp.json` at `node dist/mcp/server.js`.
 
 ## Quick start
 
@@ -163,10 +163,11 @@ In Claude Code the `sonarqube` tool is served by the MCP server and is always on
 In Pi, the extension also registers a `sonarqube` tool that the LLM can call with actions. It is disabled by default to keep its prompt guidance and schema out of the active tool context. Use `/sonarqube on`, `/sonarqube off`, or `/sonarqube status` to control it. Project setup and help remain available while disabled; run `/sonarqube on` before scanning or querying results. **Pi only:** as a rough reference, the tool definition and prompt guidance add about 562 tokens per request when enabled, estimated with OpenAI's `o200k_base` tokenizer; actual `gpt-6-luna` token accounting may differ.
 
 - `analyze` — run analysis
-- `issues` — list issues
+- `issues` — list issues in a compact form (`file`, then `key SEVERITY :line rule message`); page with `limit` (default 10, values above 100 are clamped) and `offset`; when more remain, the response ends with a breakdown of the rest by severity, rule and file. `issueKeys` (up to 10) filters to specific issues and reports keys that were not found.
 - `metrics` — show project-level coverage, duplication & issue counts
-- `duplications` — list duplicated files and block details
-- `open` — open one or more issues by stable `issueKeys` (preferred) or positional `issueIndex`
+- `duplications` — list duplicated files by default; pass `fileIndex` for that file's duplicated blocks (one readable copy shown, other locations listed)
+
+The `open` action and `issueIndex` were removed from the agent tools; calling them returns a guiding error. The Pi `/sonarqube open` command is unchanged.
 
 For tool calls, `path` selects a configured target alias or SonarQube project root. `pathScope` selects a file or directory inside that project; do not pass source scopes as `path`.
 

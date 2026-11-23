@@ -709,22 +709,11 @@ export function formatMetricsOutput(metrics: {
   }
 
   if (metrics.issueCounts) {
-    const counts =
-      metrics.cleanCodeMode === "MQR"
-        ? [
-            `BLOCKER ${metrics.issueCounts.blocker}`,
-            `HIGH ${metrics.issueCounts.critical}`,
-            `MEDIUM ${metrics.issueCounts.major}`,
-            `LOW ${metrics.issueCounts.minor}`,
-            `INFO ${metrics.issueCounts.info}`,
-          ]
-        : [
-            `BLOCKER ${metrics.issueCounts.blocker}`,
-            `CRITICAL ${metrics.issueCounts.critical}`,
-            `MAJOR ${metrics.issueCounts.major}`,
-            `MINOR ${metrics.issueCounts.minor}`,
-            `INFO ${metrics.issueCounts.info}`,
-          ];
+    const issueCounts = metrics.issueCounts;
+    const counts = SEVERITY_ORDER.map(
+      (severity) =>
+        `${severityLabel(severity, metrics.cleanCodeMode)} ${issueCounts[severity.toLowerCase() as Lowercase<typeof severity>]}`,
+    );
     lines.push(`Issues:  ${counts.join("  ")}`);
   }
 
@@ -784,46 +773,143 @@ export function formatSummary(state: {
   return `SonarQube: ${issueCount} issue${plural} found for ${state.projectKey}${filterLabel}`;
 }
 
-export function formatReport(state: {
-  projectKey: string;
-  serverUrl: string;
-  baseDir: string;
-  totalIssues: number;
-  filters?: SonarIssueFetchOptions;
-  measures?: SonarDuplicationMeasures;
-  issues: SonarIssue[];
-}): string {
-  const lines = [
-    `Project: ${state.projectKey}`,
-    `Server: ${state.serverUrl}`,
-    `Base dir: ${state.baseDir}`,
-    `Issues: ${state.totalIssues}`,
-  ];
+function formatCompactIssue(issue: SonarIssue): string {
+  const line = issue.line ? ` :${issue.line}` : "";
+  return `  ${issue.key} ${issue.severity}${line} ${issue.rule} ${issue.message}`;
+}
 
-  if (state.filters) {
-    lines.push(`Filters: ${issueFilterLabel(state.filters)}`);
+/** Guiding error shown to agents that call the removed open action. */
+export const OPEN_REMOVED_MESSAGE =
+  "The open action and issueIndex are not available to agents. Call `issues` with `issueKeys` (or filters), then read the file at the reported file:line location.";
+
+export interface Paging {
+  limit?: number;
+  offset?: number;
+}
+
+export const DEFAULT_ISSUE_LIMIT = 10;
+export const MAX_ISSUE_LIMIT = 100;
+
+/** Validates paging parameters; limit above the cap is clamped. */
+export function normalizePaging(
+  limit: number | undefined,
+  offset: number | undefined,
+): Required<Paging> {
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+    throw new Error("limit must be a positive integer.");
   }
+  if (offset !== undefined && (!Number.isInteger(offset) || offset < 0)) {
+    throw new Error("offset must be a non-negative integer.");
+  }
+  return {
+    limit: Math.min(limit ?? DEFAULT_ISSUE_LIMIT, MAX_ISSUE_LIMIT),
+    offset: offset ?? 0,
+  };
+}
+
+const SEVERITY_ORDER = [
+  "BLOCKER",
+  "CRITICAL",
+  "MAJOR",
+  "MINOR",
+  "INFO",
+] as const;
+const MQR_SEVERITY_LABELS: Record<string, string> = {
+  CRITICAL: "HIGH",
+  MAJOR: "MEDIUM",
+  MINOR: "LOW",
+};
+
+/** Severity label as shown for the project's clean-code mode. */
+export function severityLabel(
+  severity: string,
+  cleanCodeMode?: CleanCodeMode,
+): string {
+  return cleanCodeMode === "MQR"
+    ? (MQR_SEVERITY_LABELS[severity] ?? severity)
+    : severity;
+}
+
+function topCounts(values: string[], max: number): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, max);
+}
+
+function formatBreakdown(
+  rest: SonarIssue[],
+  cleanCodeMode?: CleanCodeMode,
+): string {
+  const label = (severity: string) => severityLabel(severity, cleanCodeMode);
+  const rank = (severity: string) => {
+    const index = (SEVERITY_ORDER as readonly string[]).indexOf(severity);
+    return index === -1 ? SEVERITY_ORDER.length : index;
+  };
+  const bySeverity = topCounts(
+    rest.map((issue) => issue.severity),
+    Infinity,
+  )
+    .sort((a, b) => rank(a[0]) - rank(b[0]))
+    .map(([severity, n]) => `${label(severity)} ${n}`);
+  const byRule = topCounts(
+    rest.map((issue) => issue.rule),
+    5,
+  ).map(([rule, n]) => `${rule}×${n}`);
+  const byFile = topCounts(
+    rest.map((issue) => issue.filePath),
+    5,
+  ).map(([file, n]) => `${file}×${n}`);
+  return `remaining by severity: ${bySeverity.join(" ")}; by rule: ${byRule.join(" ")}; by file: ${byFile.join(" ")}`;
+}
+
+export function formatReport(
+  state: {
+    projectKey: string;
+    totalIssues: number;
+    filters?: SonarIssueFetchOptions;
+    measures?: SonarDuplicationMeasures;
+    issues: SonarIssue[];
+    cleanCodeMode?: CleanCodeMode;
+  },
+  paging: Paging = {},
+): string {
+  const { limit, offset } = normalizePaging(paging.limit, paging.offset);
+  const shown = state.issues.slice(offset, offset + limit);
+  const rest = state.issues.slice(offset + limit);
+  const filter = state.filters ? issueFilterLabel(state.filters) : "";
+  const filterPart = filter ? ` [${filter}]` : "";
+  const plural = state.totalIssues === 1 ? "" : "s";
+  const range =
+    shown.length === 0
+      ? `none at offset ${offset}`
+      : `showing ${offset + 1}-${offset + shown.length}`;
+  const header =
+    state.totalIssues === 0
+      ? `${state.projectKey}: no issues${filterPart}`
+      : `${state.projectKey}: ${state.totalIssues} issue${plural} (${range})${filterPart}`;
+  const lines = [header];
 
   if (state.measures && state.issues.length > 0) {
     lines.push(
-      "",
       state.measures.duplicatedBlocks > 0
         ? `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  lines=${state.measures.duplicatedLines}  blocks=${state.measures.duplicatedBlocks}  files=${state.measures.duplicatedFiles}`
         : `Duplication: ${state.measures.duplicatedLinesDensity.toFixed(1)}%  (no duplications detected)`,
     );
   }
 
-  if (state.issues.length === 0) {
-    if (!state.measures) lines.push("No open issues found.");
-    return lines.join("\n");
+  const byFile = new Map<string, SonarIssue[]>();
+  for (const issue of shown) {
+    const list = byFile.get(issue.filePath) ?? [];
+    list.push(issue);
+    byFile.set(issue.filePath, list);
   }
-
-  lines.push("");
-  for (const [i, issue] of state.issues.slice(0, 10).entries()) {
-    lines.push(formatIssue(issue, i + 1));
+  for (const [file, list] of byFile) {
+    lines.push(file);
+    for (const issue of list) lines.push(formatCompactIssue(issue));
   }
-  if (state.issues.length > 10) {
-    lines.push(`... ${state.issues.length - 10} more`);
+  if (rest.length > 0) {
+    lines.push(`... ${rest.length} more`);
+    lines.push(formatBreakdown(rest, state.cleanCodeMode));
   }
   return lines.join("\n");
 }

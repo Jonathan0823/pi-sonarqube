@@ -38,6 +38,8 @@ import {
   formatIssue,
   formatMetricsOutput,
   formatReport,
+  normalizePaging,
+  type Paging,
   sonarErrorMessage,
 } from "./commands.js";
 import {
@@ -53,6 +55,10 @@ export interface SonarActionRequest extends SonarIssueFetchOptions {
   /** Configured target alias or project root directory. */
   path?: string;
   issueIndex?: number;
+  /** issues/analyze: page size (default 10; values above 100 are clamped to 100). */
+  limit?: number;
+  /** issues/analyze: 0-based index of the first issue shown. */
+  offset?: number;
   /** duplications: return the preview of the Nth duplicated file (1-based). */
   fileIndex?: number;
   /** duplications: return the list of duplicated files instead of previews. */
@@ -123,8 +129,15 @@ export async function runSonarAction(
   assertFiltersNotAmbiguous(filters);
   const issueKeys = normalizeIssueList(request.issueKeys);
   assertIssueSelection(request.issueIndex, issueKeys);
-  if (issueKeys?.length && request.action !== "open") {
-    throw new Error("issueKeys can only be used with the open action.");
+  const paging = normalizePaging(request.limit, request.offset);
+  if (
+    issueKeys?.length &&
+    request.action !== "open" &&
+    request.action !== "issues"
+  ) {
+    throw new Error(
+      "issueKeys can only be used with the issues and open actions.",
+    );
   }
   if (env.strictTargetPath) {
     await assertPathIsProjectRoot(env, request.path);
@@ -134,15 +147,43 @@ export async function runSonarAction(
     case "analyze": {
       const state = await analyzeProject(env, request.path, filters);
       env.store.remember(state);
-      return { text: formatReport(state), details: state };
+      return { text: reportText(env, state, paging), details: state };
     }
     case "duplications":
       return duplications(env, request);
     case "metrics":
       return metrics(env, request.path);
     default:
-      return issuesOrOpen(env, request, filters, issueKeys);
+      return issuesOrOpen(env, request, filters, issueKeys, paging);
   }
+}
+
+/** Path an agent can open from `cwd`; absolute when baseDir is outside it. */
+export function agentPath(cwd: string, baseDir: string, path: string): string {
+  const absolute = resolve(baseDir, path);
+  const rel = relative(cwd, absolute);
+  if (rel === "") return ".";
+  if (isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) {
+    return absolute;
+  }
+  return rel.split(sep).join("/");
+}
+
+function reportText(
+  env: SonarCoreEnv,
+  state: SonarAnalysisState,
+  paging: Paging,
+): string {
+  return formatReport(
+    {
+      ...state,
+      issues: state.issues.map((issue) => ({
+        ...issue,
+        filePath: agentPath(env.cwd, state.baseDir, issue.filePath),
+      })),
+    },
+    paging,
+  );
 }
 
 function commandHint(env: SonarCoreEnv, command: string): string {
@@ -264,6 +305,7 @@ async function issuesOrOpen(
   request: SonarActionRequest,
   filters: SonarIssueFetchOptions | undefined,
   issueKeys: string[] | undefined,
+  paging: Paging,
 ): Promise<SonarActionResult> {
   const positional =
     env.positionalOpenFromSession &&
@@ -289,7 +331,16 @@ async function issuesOrOpen(
   if (!issueKeys?.length) env.store.remember(targetState);
 
   if (request.action === "issues") {
-    return { text: formatReport(targetState), details: targetState };
+    const missing = (issueKeys ?? []).filter(
+      (key) => !targetState.issues.some((issue) => issue.key === key),
+    );
+    const report = reportText(env, targetState, paging);
+    return {
+      text: missing.length
+        ? `${report}\nnot found: ${missing.join(", ")}`
+        : report,
+      details: targetState,
+    };
   }
 
   if (issueKeys?.length) {
@@ -429,8 +480,8 @@ async function duplications(
 ): Promise<SonarActionResult> {
   const config = await resolveConfigOrSoft(env, request.path);
   if ("text" in config) return config;
-  const interactive =
-    request.view === "list" || request.fileIndex !== undefined;
+  const toAgentPath = (path: string) =>
+    agentPath(env.cwd, config.baseDir, path);
   let files: FileDuplication[];
   try {
     files = await fetchFileDuplications(
@@ -438,8 +489,7 @@ async function duplications(
       config.token,
       config.projectKey,
       env.signal,
-      // Only the interactive views honor pathScope; the summary does not.
-      interactive ? request.pathScope : undefined,
+      request.pathScope,
       config.baseDir,
     );
   } catch (error) {
@@ -460,84 +510,34 @@ async function duplications(
     );
   }
 
-  if (request.view === "list") {
+  if (request.fileIndex === undefined) {
     return {
-      text: formatDuplicationsList(files),
+      text: formatDuplicationsList(
+        files.map((f) => ({ ...f, filePath: toAgentPath(f.filePath) })),
+      ),
       details: { projectKey: config.projectKey, files },
     };
   }
 
-  if (request.fileIndex !== undefined) {
-    const file = files[request.fileIndex - 1];
-    if (!file) {
-      return soft(`File #${request.fileIndex} not found.`, "file_not_found");
-    }
-    const groups = await fetchFileDuplicationBlocks(
-      config.serverUrl,
-      config.token,
-      file.fileKey,
-      config.projectKey,
-      env.signal,
-    );
-    const text = await buildDuplicationPreview(
-      config.baseDir,
-      file.filePath,
-      groups,
-    );
-    return {
-      text,
-      details: { projectKey: config.projectKey, filePath: file.filePath },
-    };
+  const file = files[request.fileIndex - 1];
+  if (!file) {
+    return soft(`File #${request.fileIndex} not found.`, "file_not_found");
   }
-
-  const topFiles = files.slice(0, 5);
-  const topContexts = await Promise.all(
-    topFiles.map(async (file) => {
-      const summary = {
-        filePath: file.filePath,
-        duplicatedBlocks: file.duplicatedBlocks,
-        duplicatedLines: file.duplicatedLines,
-        duplicatedLinesDensity: file.duplicatedLinesDensity,
-      };
-      try {
-        const groups = await fetchFileDuplicationBlocks(
-          config.serverUrl,
-          config.token,
-          file.fileKey,
-          config.projectKey,
-          env.signal,
-        );
-        const preview = await buildDuplicationPreview(
-          config.baseDir,
-          file.filePath,
-          groups,
-        );
-        return { ...summary, preview };
-      } catch (error) {
-        return {
-          ...summary,
-          preview: `Duplications in ${file.filePath}\n\n<failed to load duplicated lines: ${sonarErrorMessage(error)}>`,
-        };
-      }
-    }),
+  const groups = await fetchFileDuplicationBlocks(
+    config.serverUrl,
+    config.token,
+    file.fileKey,
+    config.projectKey,
+    env.signal,
   );
-  const remaining = files.length - topContexts.length;
-  const blocks = [
-    `Duplicated files for ${config.projectKey}: ${files.length}. Showing top ${topContexts.length}.`,
-    ...topContexts.map(
-      (item, index) =>
-        `#${index + 1} ${item.filePath}  dup%=${item.duplicatedLinesDensity.toFixed(1)}  blocks=${item.duplicatedBlocks}  lines=${item.duplicatedLines}\n${item.preview}`,
-    ),
-    ...(remaining > 0 ? [`+ ${remaining} more file(s) not shown`] : []),
-  ];
+  const text = await buildDuplicationPreview(
+    config.baseDir,
+    file.filePath,
+    groups,
+    toAgentPath,
+  );
   return {
-    text: blocks.join("\n"),
-    blocks,
-    details: {
-      projectKey: config.projectKey,
-      totalFiles: files.length,
-      topFiles: topContexts,
-      moreFiles: remaining,
-    },
+    text,
+    details: { projectKey: config.projectKey, filePath: file.filePath },
   };
 }

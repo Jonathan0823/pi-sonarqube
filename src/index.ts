@@ -8,7 +8,7 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { basename } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import type {
   SonarIssue,
   SonarAnalysisState,
@@ -48,6 +48,7 @@ import {
   helpText,
   targetLabel,
   sonarErrorMessage,
+  OPEN_REMOVED_MESSAGE,
 } from "./core/commands.js";
 import { issueFilterLabel, normalizeIssueFilters } from "./core/api.js";
 import {
@@ -59,30 +60,32 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum([
-    "analyze",
-    "issues",
-    "open",
-    "metrics",
-    "duplications",
-  ] as const),
+  action: StringEnum(["analyze", "issues", "metrics", "duplications"] as const),
   path: Type.Optional(
     Type.String({
       description:
         "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
     }),
   ),
-  issueIndex: Type.Optional(
-    Type.Number({
-      description:
-        "Legacy 1-based issue position in this call's query results. Prefer issueKeys for stable opening.",
-    }),
-  ),
   issueKeys: Type.Optional(
     Type.Array(Type.String({ description: "Stable SonarQube issue key" }), {
-      description: "One to 10 stable issue keys to open in one batch",
+      description: "issues: filter to one to 10 stable issue keys",
       minItems: 1,
       maxItems: 10,
+    }),
+  ),
+  limit: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "issues/analyze: maximum issues to show (default 10; values above 100 are clamped to 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
+    }),
+  ),
+  offset: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "issues/analyze: 0-based number of issues to skip, for paging through a long list (default 0).",
     }),
   ),
   severities: Type.Optional(
@@ -117,6 +120,13 @@ const SonarToolParams = Type.Object({
     Type.String({
       description:
         "File or directory inside the selected SonarQube project, relative to its project root (e.g. src/api.ts or src/). Filters issues only; use path to select the project.",
+    }),
+  ),
+  fileIndex: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "duplications: 1-based file number from the list; returns that file's duplicated blocks and line ranges.",
     }),
   ),
 });
@@ -554,16 +564,31 @@ export default function sonarqube(pi: ExtensionAPI) {
     description: "Run local SonarQube analysis and inspect the latest issues.",
     promptSnippet: "Run local SonarQube analysis or inspect issue results",
     promptGuidelines: [
-      "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues, or open an issue's source location.",
+      "Use sonarqube when the user asks to run a local SonarQube scan, inspect issues.",
       "The `path` parameter selects a configured target alias or SonarQube project root. Never pass a source file or subdirectory as `path`.",
       "Use `pathScope` for a file or directory inside that project. Example: path: 'apps/web', pathScope: 'src/components/'.",
       "Use the optional severity, status, type, rule, quality, and impact severity filters to fetch only the most relevant issues.",
-      "Prefer stable `issueKeys` over positional `issueIndex` when opening issue source. Multiple keys can be opened in one call.",
+      "Flow: list issues, page or filter (use `issueKeys` to fetch specific issues), then read the files at the reported file:line locations.",
     ],
     parameters: SonarToolParams,
 
+    // Runs before schema validation, so removed legacy fields get a guiding
+    // error instead of a generic enum/unknown-property failure.
+    prepareArguments(args) {
+      const input = (args ?? {}) as { action?: unknown; issueIndex?: unknown };
+      if (input.action === "open" || input.issueIndex !== undefined) {
+        throw new Error(OPEN_REMOVED_MESSAGE);
+      }
+      return args as Static<typeof SonarToolParams>;
+    },
+
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
+        // Defense in depth for callers that skip prepareArguments.
+        const legacy = params as { action: string; issueIndex?: unknown };
+        if (legacy.action === "open" || legacy.issueIndex !== undefined) {
+          throw new Error(OPEN_REMOVED_MESSAGE);
+        }
         const result = await runSonarAction(
           params as SonarActionRequest,
           coreEnv(ctx),
