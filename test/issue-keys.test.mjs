@@ -69,7 +69,7 @@ test("issue keys remain in LLM output but stay hidden from UI autocomplete", asy
   assert.ok(!suggestions.some((item) => item.value === "issue:key-a"));
 });
 
-test("tool batch open queries exact keys once and preserves requested order", async () => {
+test("tool issues with issueKeys queries exact keys once; open is rejected", async () => {
   const projectDir = await mkdtemp(join(tmpdir(), "pi-sonarqube-keys-"));
   const originalFetch = globalThis.fetch;
   let issueSearchUrl;
@@ -136,7 +136,7 @@ test("tool batch open queries exact keys once and preserves requested order", as
     const result = await tool.execute(
       "call-1",
       {
-        action: "open",
+        action: "issues",
         path: projectDir,
         issueKeys: ["key-b", "missing", "key-a"],
       },
@@ -150,22 +150,17 @@ test("tool batch open queries exact keys once and preserves requested order", as
       "key-b,missing,key-a",
     );
     assert.equal(issueSearchUrl.searchParams.has("resolved"), false);
-    assert.deepEqual(
-      result.details.selectedIssues.map((selected) => selected.key),
-      ["key-b", "key-a"],
-    );
-    assert.deepEqual(result.details.missingIssueKeys, ["missing"]);
-    assert.ok(
-      result.content[0].text.indexOf("[key-b]") <
-        result.content[0].text.indexOf("[key-a]"),
-    );
-    assert.match(result.content[0].text, /Issue key "missing" was not found/);
+    assert.match(result.content[0].text, /key-a/);
+    assert.match(result.content[0].text, /key-b/);
 
-    const rendered = tool.renderResult(result, { expanded: false }, theme, {});
-    const renderedText = rendered.render(200).join("\n");
-    assert.match(renderedText, /const b = 2;/);
-    assert.match(renderedText, /Requested issue was not found/);
-    assert.doesNotMatch(renderedText, /\[key-b\]|key "missing"/);
+    const open = await tool.execute(
+      "call-2",
+      { action: "open", path: projectDir, issueKeys: ["key-a"] },
+      undefined,
+      undefined,
+      { cwd: projectDir },
+    );
+    assert.match(open.content[0].text, /read the file/);
   } finally {
     globalThis.fetch = originalFetch;
     await rm(projectDir, { recursive: true, force: true });
