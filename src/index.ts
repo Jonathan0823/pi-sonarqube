@@ -48,6 +48,7 @@ import {
   helpText,
   targetLabel,
   sonarErrorMessage,
+  OPEN_REMOVED_MESSAGE,
 } from "./core/commands.js";
 import { issueFilterLabel, normalizeIssueFilters } from "./core/api.js";
 import {
@@ -59,11 +60,23 @@ import {
 } from "./ui.js";
 
 const SonarToolParams = Type.Object({
-  action: StringEnum(["analyze", "issues", "metrics", "duplications"] as const),
+  // "open" is accepted by the schema only so execute() can reject it with a guiding error.
+  action: StringEnum([
+    "analyze",
+    "issues",
+    "metrics",
+    "duplications",
+    "open",
+  ] as const),
   path: Type.Optional(
     Type.String({
       description:
         "Configured target alias or SonarQube project root directory. Selects the project/configuration; never use it to filter by source file or subdirectory. Use pathScope for that.",
+    }),
+  ),
+  issueIndex: Type.Optional(
+    Type.Number({
+      description: "Removed; rejected with a guiding error. Use issueKeys.",
     }),
   ),
   issueKeys: Type.Optional(
@@ -76,9 +89,8 @@ const SonarToolParams = Type.Object({
   limit: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: 100,
       description:
-        "issues/analyze: maximum issues to show (default 10, max 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
+        "issues/analyze: maximum issues to show (default 10; values above 100 are clamped to 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
     }),
   ),
   offset: Type.Optional(
@@ -567,11 +579,8 @@ export default function sonarqube(pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
-        const raw = params as Record<string, unknown>;
-        if (raw.action === "open" || raw.issueIndex !== undefined) {
-          throw new Error(
-            "The open action and issueIndex are not available to agents. Call `issues` with `issueKeys` (or filters), then read the file at the reported file:line location.",
-          );
+        if (params.action === "open" || params.issueIndex !== undefined) {
+          throw new Error(OPEN_REMOVED_MESSAGE);
         }
         const result = await runSonarAction(
           params as SonarActionRequest,

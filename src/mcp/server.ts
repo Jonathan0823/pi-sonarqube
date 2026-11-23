@@ -11,6 +11,7 @@ import {
 } from "../core/actions.js";
 import { sonarErrorMessage } from "../core/commands.js";
 import { initProject } from "../core/init.js";
+import { OPEN_REMOVED_MESSAGE } from "../core/commands.js";
 import type { CommandRunner, SonarAnalysisState } from "../core/types.js";
 
 const DESCRIPTION = [
@@ -23,15 +24,13 @@ const DESCRIPTION = [
   "Flow: list issues, page or filter (use `issueKeys` to fetch specific issues), then read the files at the reported file:line locations with your own file tools.",
 ].join("\n");
 
-const OPEN_REMOVED =
-  "The open action and issueIndex are not available to agents. Call `issues` with `issueKeys` (or filters), then read the file at the reported file:line location.";
-
 const list = (description: string) =>
   z.array(z.string()).optional().describe(description);
 
 const inputSchema = {
   action: z.enum(["analyze", "issues", "metrics", "duplications", "init"], {
-    error: (issue) => (issue.input === "open" ? OPEN_REMOVED : undefined),
+    error: (issue) =>
+      issue.input === "open" ? OPEN_REMOVED_MESSAGE : undefined,
   }),
   serverUrl: z
     .string()
@@ -63,10 +62,9 @@ const inputSchema = {
     .number()
     .int()
     .min(1)
-    .max(100)
     .optional()
     .describe(
-      "issues/analyze: maximum issues to show (default 10, max 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
+      "issues/analyze: maximum issues to show (default 10; values above 100 are clamped to 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
     ),
   offset: z
     .number()
@@ -136,7 +134,7 @@ const server = new McpServer({ name: "sonarqube", version });
 
 const inputObject = z.looseObject(inputSchema).superRefine((value, ctx) => {
   if ("issueIndex" in value) {
-    ctx.addIssue({ code: "custom", message: OPEN_REMOVED });
+    ctx.addIssue({ code: "custom", message: OPEN_REMOVED_MESSAGE });
   }
 });
 

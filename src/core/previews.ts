@@ -72,28 +72,32 @@ export async function buildDuplicationPreview(
   };
 
   const rendered: string[] = [`Duplications in ${display(filePath)}`];
-  for (const [groupIndex, group] of groups.entries()) {
-    rendered.push("", `Block ${groupIndex + 1}:`);
-    const range = (block: DuplicationBlockGroup["blocks"][number]) =>
-      `${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`;
-    let shown = -1;
-    for (const [i, block] of group.blocks.entries()) {
+  type Block = DuplicationBlockGroup["blocks"][number];
+  const range = (block: Block) =>
+    `${display(block.filePath)}:${block.from}-${block.from + block.size - 1}`;
+  /** First copy whose source can be read, with its rendered lines. */
+  const firstReadableBlock = async (blocks: Block[]) => {
+    for (const [index, block] of blocks.entries()) {
       try {
         const lines = await loadLines(block.filePath); // NOSONAR: first readable copy wins.
-        rendered.push(`  ${range(block)}`);
-        for (const line of renderRange(lines, block.from, block.size)) {
-          rendered.push(`  ${line}`);
-        }
-        shown = i;
-        break;
+        return { index, lines: renderRange(lines, block.from, block.size) };
       } catch {
         // try the next copy
       }
     }
-    if (shown === -1 && group.blocks.length > 0) {
+    return undefined;
+  };
+
+  for (const [groupIndex, group] of groups.entries()) {
+    rendered.push("", `Block ${groupIndex + 1}:`);
+    const readable = await firstReadableBlock(group.blocks); // NOSONAR: groups render in order.
+    if (readable) {
+      rendered.push(`  ${range(group.blocks[readable.index])}`);
+      for (const line of readable.lines) rendered.push(`  ${line}`);
+    } else if (group.blocks.length > 0) {
       rendered.push("  <unable to read duplicated lines>");
     }
-    const others = group.blocks.filter((_, i) => i !== shown);
+    const others = group.blocks.filter((_, i) => i !== readable?.index);
     if (others.length > 0) {
       rendered.push(`  also: ${others.map(range).join(", ")}`);
     }

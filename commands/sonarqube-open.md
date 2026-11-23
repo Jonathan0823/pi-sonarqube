@@ -1,7 +1,7 @@
 ---
 description: Look at and fix SonarQube issues by position or issue key
 argument-hint: [target] <n> | [target] issue:<keys>
-allowed-tools: mcp__plugin_sonarqube_sonarqube__sonarqube, Read, Grep, Glob, Edit
+allowed-tools: mcp__plugin_sonarqube_sonarqube__sonarqube, Read, Grep, Edit
 ---
 
 Parse the arguments (`$ARGUMENTS`) as space-separated tokens:

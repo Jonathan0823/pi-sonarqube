@@ -39,6 +39,7 @@ import {
   formatMetricsOutput,
   formatReport,
   normalizePaging,
+  type Paging,
   sonarErrorMessage,
 } from "./commands.js";
 import {
@@ -54,7 +55,7 @@ export interface SonarActionRequest extends SonarIssueFetchOptions {
   /** Configured target alias or project root directory. */
   path?: string;
   issueIndex?: number;
-  /** issues/analyze: page size (default 10, max 100). */
+  /** issues/analyze: page size (default 10; values above 100 are clamped to 100). */
   limit?: number;
   /** issues/analyze: 0-based index of the first issue shown. */
   offset?: number;
@@ -128,7 +129,7 @@ export async function runSonarAction(
   assertFiltersNotAmbiguous(filters);
   const issueKeys = normalizeIssueList(request.issueKeys);
   assertIssueSelection(request.issueIndex, issueKeys);
-  normalizePaging(request.limit, request.offset);
+  const paging = normalizePaging(request.limit, request.offset);
   if (
     issueKeys?.length &&
     request.action !== "open" &&
@@ -146,14 +147,14 @@ export async function runSonarAction(
     case "analyze": {
       const state = await analyzeProject(env, request.path, filters);
       env.store.remember(state);
-      return { text: reportText(env, state, request), details: state };
+      return { text: reportText(env, state, paging), details: state };
     }
     case "duplications":
       return duplications(env, request);
     case "metrics":
       return metrics(env, request.path);
     default:
-      return issuesOrOpen(env, request, filters, issueKeys);
+      return issuesOrOpen(env, request, filters, issueKeys, paging);
   }
 }
 
@@ -171,7 +172,7 @@ export function agentPath(cwd: string, baseDir: string, path: string): string {
 function reportText(
   env: SonarCoreEnv,
   state: SonarAnalysisState,
-  paging: { limit?: number; offset?: number },
+  paging: Paging,
 ): string {
   return formatReport(
     {
@@ -304,6 +305,7 @@ async function issuesOrOpen(
   request: SonarActionRequest,
   filters: SonarIssueFetchOptions | undefined,
   issueKeys: string[] | undefined,
+  paging: Paging,
 ): Promise<SonarActionResult> {
   const positional =
     env.positionalOpenFromSession &&
@@ -329,8 +331,14 @@ async function issuesOrOpen(
   if (!issueKeys?.length) env.store.remember(targetState);
 
   if (request.action === "issues") {
+    const missing = (issueKeys ?? []).filter(
+      (key) => !targetState.issues.some((issue) => issue.key === key),
+    );
+    const report = reportText(env, targetState, paging);
     return {
-      text: reportText(env, targetState, request),
+      text: missing.length
+        ? `${report}\nnot found: ${missing.join(", ")}`
+        : report,
       details: targetState,
     };
   }
@@ -472,6 +480,8 @@ async function duplications(
 ): Promise<SonarActionResult> {
   const config = await resolveConfigOrSoft(env, request.path);
   if ("text" in config) return config;
+  const toAgentPath = (path: string) =>
+    agentPath(env.cwd, config.baseDir, path);
   let files: FileDuplication[];
   try {
     files = await fetchFileDuplications(
@@ -503,36 +513,31 @@ async function duplications(
   if (request.fileIndex === undefined) {
     return {
       text: formatDuplicationsList(
-        files.map((f) => ({
-          ...f,
-          filePath: agentPath(env.cwd, config.baseDir, f.filePath),
-        })),
+        files.map((f) => ({ ...f, filePath: toAgentPath(f.filePath) })),
       ),
       details: { projectKey: config.projectKey, files },
     };
   }
 
-  {
-    const file = files[request.fileIndex - 1];
-    if (!file) {
-      return soft(`File #${request.fileIndex} not found.`, "file_not_found");
-    }
-    const groups = await fetchFileDuplicationBlocks(
-      config.serverUrl,
-      config.token,
-      file.fileKey,
-      config.projectKey,
-      env.signal,
-    );
-    const text = await buildDuplicationPreview(
-      config.baseDir,
-      file.filePath,
-      groups,
-      (p) => agentPath(env.cwd, config.baseDir, p),
-    );
-    return {
-      text,
-      details: { projectKey: config.projectKey, filePath: file.filePath },
-    };
+  const file = files[request.fileIndex - 1];
+  if (!file) {
+    return soft(`File #${request.fileIndex} not found.`, "file_not_found");
   }
+  const groups = await fetchFileDuplicationBlocks(
+    config.serverUrl,
+    config.token,
+    file.fileKey,
+    config.projectKey,
+    env.signal,
+  );
+  const text = await buildDuplicationPreview(
+    config.baseDir,
+    file.filePath,
+    groups,
+    toAgentPath,
+  );
+  return {
+    text,
+    details: { projectKey: config.projectKey, filePath: file.filePath },
+  };
 }
