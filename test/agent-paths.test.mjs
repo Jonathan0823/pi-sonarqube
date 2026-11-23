@@ -97,7 +97,7 @@ test("issues text is relative to cwd; details stay project-relative", async () =
       { action: "issues", path: "apps/web" },
       env(cwd),
     );
-    assert.match(r.text, /apps\/web\/src\/a\.ts:2/);
+    assert.match(r.text, /apps\/web\/src\/a\.ts\n\s+K1 MAJOR :2/);
     assert.equal(r.details.issues[0].filePath, "src/a.ts");
   });
 });
@@ -105,7 +105,7 @@ test("issues text is relative to cwd; details stay project-relative", async () =
 test("issues text is unchanged when project root equals cwd", async () => {
   await setup(async ({ web, env }) => {
     const r = await runSonarAction({ action: "issues" }, env(web));
-    assert.match(r.text, /MAJOR src\/a\.ts:2/);
+    assert.match(r.text, /src\/a\.ts\n\s+K1 MAJOR :2/);
   });
 });
 
