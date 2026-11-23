@@ -331,3 +331,24 @@ test("a source file or subdirectory passed as path is a clear error", async () =
     }),
   );
 });
+
+test("limit and offset are in the schema and reach the core", async () => {
+  await withFakeSonar((url) =>
+    withClient(url, async (client) => {
+      const { tools } = await client.listTools();
+      const props = tools[0].inputSchema.properties;
+      assert.ok(props.limit?.description);
+      assert.ok(props.offset?.description);
+      const result = await call(client, {
+        action: "analyze",
+        limit: 1,
+        offset: 1,
+      });
+      assert.notEqual(result.isError, true, result.content[0].text);
+      const text = result.content.map((c) => c.text).join("\n");
+      assert.match(text, /showing 2-2/);
+      assert.match(text, /Refactor this function/);
+      assert.doesNotMatch(text, /Remove this unused import/);
+    }),
+  );
+});

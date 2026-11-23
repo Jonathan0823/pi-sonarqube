@@ -789,21 +789,93 @@ function formatCompactIssue(issue: SonarIssue): string {
   return `  ${issue.key} ${issue.severity}${line} ${issue.rule} ${issue.message}`;
 }
 
-export function formatReport(state: {
-  projectKey: string;
-  totalIssues: number;
-  filters?: SonarIssueFetchOptions;
-  measures?: SonarDuplicationMeasures;
-  issues: SonarIssue[];
-}): string {
-  const shown = state.issues.slice(0, 10);
+export const DEFAULT_ISSUE_LIMIT = 10;
+export const MAX_ISSUE_LIMIT = 100;
+
+/** Validates paging parameters; limit above the cap is clamped. */
+export function normalizePaging(
+  limit: number | undefined,
+  offset: number | undefined,
+): { limit: number; offset: number } {
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+    throw new Error("limit must be a positive integer.");
+  }
+  if (offset !== undefined && (!Number.isInteger(offset) || offset < 0)) {
+    throw new Error("offset must be a non-negative integer.");
+  }
+  return {
+    limit: Math.min(limit ?? DEFAULT_ISSUE_LIMIT, MAX_ISSUE_LIMIT),
+    offset: offset ?? 0,
+  };
+}
+
+const SEVERITY_ORDER = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"];
+const MQR_SEVERITY_LABELS: Record<string, string> = {
+  CRITICAL: "HIGH",
+  MAJOR: "MEDIUM",
+  MINOR: "LOW",
+};
+
+function topCounts(values: string[], max: number): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, max);
+}
+
+function formatBreakdown(
+  rest: SonarIssue[],
+  cleanCodeMode?: CleanCodeMode,
+): string {
+  const label = (severity: string) =>
+    cleanCodeMode === "MQR"
+      ? (MQR_SEVERITY_LABELS[severity] ?? severity)
+      : severity;
+  const rank = (severity: string) => {
+    const index = SEVERITY_ORDER.indexOf(severity);
+    return index === -1 ? SEVERITY_ORDER.length : index;
+  };
+  const bySeverity = topCounts(
+    rest.map((issue) => issue.severity),
+    Infinity,
+  )
+    .sort((a, b) => rank(a[0]) - rank(b[0]))
+    .map(([severity, n]) => `${label(severity)} ${n}`);
+  const byRule = topCounts(
+    rest.map((issue) => issue.rule),
+    5,
+  ).map(([rule, n]) => `${rule}×${n}`);
+  const byFile = topCounts(
+    rest.map((issue) => issue.filePath),
+    5,
+  ).map(([file, n]) => `${file}×${n}`);
+  return `remaining by severity: ${bySeverity.join(" ")}; by rule: ${byRule.join(" ")}; by file: ${byFile.join(" ")}`;
+}
+
+export function formatReport(
+  state: {
+    projectKey: string;
+    totalIssues: number;
+    filters?: SonarIssueFetchOptions;
+    measures?: SonarDuplicationMeasures;
+    issues: SonarIssue[];
+    cleanCodeMode?: CleanCodeMode;
+  },
+  paging: { limit?: number; offset?: number } = {},
+): string {
+  const { limit, offset } = normalizePaging(paging.limit, paging.offset);
+  const shown = state.issues.slice(offset, offset + limit);
+  const rest = state.issues.slice(offset + limit);
   const filter = state.filters ? issueFilterLabel(state.filters) : "";
   const filterPart = filter ? ` [${filter}]` : "";
   const plural = state.totalIssues === 1 ? "" : "s";
+  const range =
+    shown.length === 0
+      ? `none at offset ${offset}`
+      : `showing ${offset + 1}-${offset + shown.length}`;
   const header =
     state.totalIssues === 0
       ? `${state.projectKey}: no issues${filterPart}`
-      : `${state.projectKey}: ${state.totalIssues} issue${plural} (showing 1-${shown.length})${filterPart}`;
+      : `${state.projectKey}: ${state.totalIssues} issue${plural} (${range})${filterPart}`;
   const lines = [header];
 
   if (state.measures && state.issues.length > 0) {
@@ -824,8 +896,9 @@ export function formatReport(state: {
     lines.push(file);
     for (const issue of list) lines.push(formatCompactIssue(issue));
   }
-  if (state.issues.length > shown.length) {
-    lines.push(`... ${state.issues.length - shown.length} more`);
+  if (rest.length > 0) {
+    lines.push(`... ${rest.length} more`);
+    lines.push(formatBreakdown(rest, state.cleanCodeMode));
   }
   return lines.join("\n");
 }

@@ -59,6 +59,23 @@ const inputSchema = {
     .max(10)
     .optional()
     .describe("issues: filter to one to 10 stable issue keys"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      "issues/analyze: maximum issues to show (default 10, max 100). When more match, the response ends with a breakdown of the rest by severity, rule and file.",
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      "issues/analyze: 0-based number of issues to skip, for paging through a long list (default 0).",
+    ),
   severities: list("Issue severities to fetch (e.g. CRITICAL)"),
   statuses: list("Issue statuses to fetch (e.g. OPEN)"),
   types: list("Issue types to fetch (e.g. BUG)"),
